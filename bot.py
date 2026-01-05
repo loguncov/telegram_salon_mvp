@@ -1,10 +1,10 @@
 import asyncio
-import os
 import json
+import logging
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
-from dotenv import load_dotenv
+from config import get_settings
 
 # #region agent log
 def debug_log(location, message, data=None, hypothesis_id=None):
@@ -22,27 +22,19 @@ def debug_log(location, message, data=None, hypothesis_id=None):
     except: pass
 # #endregion
 
-load_dotenv()
-debug_log('bot.py:18', 'load_dotenv called', {}, 'A')
+settings = get_settings()
+logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEB_APP_URL = os.getenv("WEB_APP_URL", "https://loguncov.github.io/telegram_salon_mvp/")
+BOT_TOKEN = settings.bot_token
+WEB_APP_URL = settings.web_app_url
 debug_log('bot.py:22', 'Environment variables loaded', {'has_token': bool(BOT_TOKEN), 'web_app_url': WEB_APP_URL}, 'A')
-
-# Telegram требует HTTPS для Web App
-if WEB_APP_URL and not WEB_APP_URL.startswith("https://"):
-    print(f"[WARN] WEB_APP_URL должен быть HTTPS. Текущий: {WEB_APP_URL}")
-    print(f"[WARN] Используется дефолтный URL: https://loguncov.github.io/telegram_salon_mvp/")
-    WEB_APP_URL = "https://loguncov.github.io/telegram_salon_mvp/"
-    debug_log('bot.py:28', 'WEB_APP_URL changed to HTTPS', {'new_url': WEB_APP_URL}, 'C')
 
 debug_log('bot.py:30', 'Before BOT_TOKEN check', {'has_token': bool(BOT_TOKEN)}, 'A')
 if not BOT_TOKEN:
     debug_log('bot.py:32', 'BOT_TOKEN missing - raising error', {}, 'A')
     raise RuntimeError("BOT_TOKEN not set in .env file")
 
-print(f"[OK] BOT_TOKEN загружен")
-print(f"[OK] WEB_APP_URL: {WEB_APP_URL}")
+logger.info("BOT_TOKEN loaded; WEB_APP_URL=%s", WEB_APP_URL)
 
 debug_log('bot.py:37', 'Before Bot initialization', {'web_app_url': WEB_APP_URL}, 'E')
 try:
@@ -55,7 +47,7 @@ except Exception as e:
 dp = Dispatcher()
 debug_log('bot.py:45', 'Dispatcher created', {}, 'E')
 
-print("[OK] Бот инициализирован, запуск polling...")
+logger.info("Bot initialized, polling ready to start")
 
 @dp.message(Command("start"))
 async def start(message: Message):
@@ -80,7 +72,7 @@ async def start(message: Message):
             f"Должен быть HTTPS URL (например: https://loguncov.github.io/telegram_salon_mvp/)"
         )
 
-async def main():
+async def start_bot():
     debug_log('bot.py:71', 'Starting polling', {}, 'E')
     try:
         await dp.start_polling(bot)
@@ -88,6 +80,15 @@ async def main():
     except Exception as e:
         debug_log('bot.py:75', 'Polling failed', {'error': str(e), 'error_type': type(e).__name__}, 'B')
         raise
+
+
+async def shutdown_bot():
+    """Close bot session gracefully."""
+    await bot.session.close()
+
+
+async def main():
+    await start_bot()
 
 if __name__ == "__main__":
     debug_log('bot.py:78', 'Script started', {}, 'B')

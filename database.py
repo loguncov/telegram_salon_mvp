@@ -1,14 +1,32 @@
-"""
-Модуль для работы с базой данных SQLite
-"""
+"""Работа с базой данных SQLite."""
+from __future__ import annotations
+
+import logging
 import sqlite3
-import json
 import uuid
-from typing import Optional, List, Dict
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional
 
-DB_PATH = Path("salon.db")
+from config import get_settings
+
+
+settings = get_settings()
+logger = logging.getLogger(__name__)
+
+
+def _resolve_db_path(database_url: str) -> Path:
+    """Convert DATABASE_URL (sqlite only) to filesystem path."""
+    prefix = "sqlite:///"
+    if not database_url.startswith(prefix):
+        raise ValueError("Only sqlite DATABASE_URL is supported for this project.")
+    raw_path = database_url.replace(prefix, "", 1)
+    path = Path(raw_path).expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+DB_PATH = _resolve_db_path(settings.database_url)
 
 
 def get_db_connection():
@@ -18,8 +36,8 @@ def get_db_connection():
     return conn
 
 
-def init_db():
-    """Инициализация БД - создание таблиц"""
+def init_db(seed: bool = True):
+    """Инициализация БД - создание таблиц и тестовых данных."""
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -82,8 +100,55 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_appointments_client ON appointments(client_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_appointments_datetime ON appointments(datetime)")
     
+    if seed:
+        _seed_data(conn)
+    
     conn.commit()
     conn.close()
+
+
+def _seed_data(conn: sqlite3.Connection) -> None:
+    """Добавить пример данных, если БД пустая."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM salons")
+    if cursor.fetchone()[0] > 0:
+        return
+
+    logger.info("Seeding database with example data")
+    owner_id = "seed-owner"
+    salon_id = str(uuid.uuid4())
+    cursor.execute(
+        "INSERT INTO salons (id, name, owner_id) VALUES (?, ?, ?)",
+        (salon_id, "Demo Salon", owner_id),
+    )
+
+    master_id = str(uuid.uuid4())
+    cursor.execute(
+        "INSERT INTO masters (id, salon_id, name, telegram_id) VALUES (?, ?, ?, ?)",
+        (master_id, salon_id, "Анна", "seed-master"),
+    )
+
+    service_id = str(uuid.uuid4())
+    cursor.execute(
+        "INSERT INTO services (id, salon_id, name, price, duration, description) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (service_id, salon_id, "Укладка", 1500, 60, "Быстрая укладка"),
+    )
+
+    appointment_id = str(uuid.uuid4())
+    cursor.execute(
+        "INSERT INTO appointments (id, salon_id, master_id, service_id, client_id, datetime, status) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            appointment_id,
+            salon_id,
+            master_id,
+            service_id,
+            "seed-client",
+            datetime.now().isoformat(),
+            "pending",
+        ),
+    )
 
 
 # Функции для работы с салонами

@@ -55,6 +55,17 @@
 </head>
 <body>
   <div class="wrap">
+    <div class="card" id="health-card">
+      <div class="card-header">
+        <div>
+          <div class="eyebrow">Статус сервера</div>
+          <div class="subtitle" id="health-status-text">Проверяем...</div>
+          <p class="muted" id="health-updated-at"></p>
+        </div>
+        <button class="secondary" id="health-refresh-btn">Обновить</button>
+      </div>
+    </div>
+
     <div class="card" id="state-loading">
       <h3>Загрузка…</h3>
       <p class="muted">Проверяем ваш салон</p>
@@ -321,31 +332,30 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script>
     (function () {
-      const tg = window.Telegram.WebApp;
-      tg.ready();
-      tg.expand();
-
-      const user = tg.initDataUnsafe?.user;
-      if (!user) {
-        document.body.innerHTML = `
-          <div class="wrap">
-            <div class="card">
-              <h3>Нужно открыть через бота</h3>
-              <p class="muted">Используйте кнопку в чате, чтобы загрузить приложение.</p>
-            </div>
-          </div>
-        `;
-        return;
+      const tg = window.Telegram?.WebApp;
+      const isTelegram = Boolean(tg?.initDataUnsafe?.user);
+      if (tg?.ready) {
+        tg.ready();
+        tg.expand();
       }
 
-      // API_BASE: если на GitHub Pages, используем backend URL, иначе текущий origin
-      const API_BASE = window.location.hostname === "loguncov.github.io" 
-        ? "http://localhost:8000"  // Для GitHub Pages указываем локальный backend
-        : window.location.origin;  // Для локальной разработки используем текущий origin
+      const user = tg?.initDataUnsafe?.user || {
+        id: "local-user",
+        first_name: "Local Tester",
+      };
+
+      // Все запросы уходят на тот же origin, что отдаёт WebApp
+      const API_BASE = "";
+      const healthStatusText = document.getElementById("health-status-text");
+      const healthUpdatedAt = document.getElementById("health-updated-at");
+      const healthRefreshBtn = document.getElementById("health-refresh-btn");
+      if (!isTelegram && healthUpdatedAt) {
+        healthUpdatedAt.textContent = "Локальный режим (без Telegram)";
+      }
       
       const defaultHeaders = {
         "Content-Type": "application/json",
-        "X-User-Id": user.id,
+        "X-User-Id": user?.id || "local-user",
       };
 
       const states = {
@@ -390,6 +400,31 @@
           element.textContent = element.dataset.originalText || element.textContent;
         }
       }
+
+      async function checkHealth(showToastOnSuccess = false) {
+        if (!healthStatusText) return;
+        try {
+          const res = await fetchJson("/health", { headers: {} });
+          const isOk = res?.status === "ok";
+          healthStatusText.textContent = isOk ? "Backend доступен" : "Backend недоступен";
+          if (healthUpdatedAt) {
+            healthUpdatedAt.textContent = res?.time ? `Обновлено: ${res.time}` : "";
+          }
+          if (isOk && showToastOnSuccess) {
+            showToast("Backend доступен", "success");
+          }
+          return isOk;
+        } catch (err) {
+          healthStatusText.textContent = "Нет соединения";
+          if (healthUpdatedAt) {
+            healthUpdatedAt.textContent = err?.message || "Ошибка запроса";
+          }
+          showToast(err?.message || "Backend недоступен", "error");
+          throw err;
+        }
+      }
+
+      healthRefreshBtn?.addEventListener("click", () => checkHealth(true));
 
       async function fetchJson(path, options = {}) {
         const controller = new AbortController();
@@ -2058,6 +2093,7 @@
         }
       });
 
+      checkHealth().catch(() => {});
       render();
     })();
   </script>

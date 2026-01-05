@@ -8,9 +8,10 @@ from typing import Dict, Optional, List
 import uuid
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import database
+from config import get_settings
 
 # #region agent log
 def debug_log(location, message, data=None, hypothesis_id=None):
@@ -29,16 +30,20 @@ def debug_log(location, message, data=None, hypothesis_id=None):
 # #endregion
 
 # Настройка логирования
+settings = get_settings()
+
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    level=logging.DEBUG if settings.debug else logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
-debug_log('backend.py:25', 'Logging configured', {}, 'B')
+debug_log("backend.py:25", "Logging configured", {"level": logger.level}, "B")
 
-app = FastAPI()
-debug_log('backend.py:27', 'FastAPI app created', {}, 'B')
+app = FastAPI(title="Salon WebApp API")
+debug_log("backend.py:27", "FastAPI app created", {}, "B")
+frontend_dir = Path(__file__).resolve().parent
+index_path = frontend_dir / "index.html"
 
 # Middleware для логирования запросов
 @app.middleware("http")
@@ -60,25 +65,42 @@ async def log_requests(request: Request, call_next):
         debug_log('backend.py:44', 'Request error', {'method': request.method, 'path': request.url.path, 'error': str(e), 'error_type': type(e).__name__}, 'D')
         raise
 
+static_dir = frontend_dir / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
 # Статическая раздача HTML
-@app.get("/")
+@app.get("/", include_in_schema=False)
 async def read_root():
-    debug_log('backend.py:50', 'Root endpoint called', {}, 'D')
-    return FileResponse("index.html")
+    debug_log("backend.py:50", "Root endpoint called", {}, "D")
+    if not index_path.exists():
+        logger.error("index.html not found at %s", index_path)
+        raise HTTPException(status_code=500, detail="Frontend is missing")
+    return FileResponse(index_path)
 
 debug_log('backend.py:53', 'Before CORS middleware', {}, 'B')
+allowed_origins = {
+    settings.web_app_url,
+    f"http://{settings.host}:{settings.port}",
+    f"http://127.0.0.1:{settings.port}",
+    f"http://localhost:{settings.port}",
+}
+allowed_origins = [origin for origin in allowed_origins if origin]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-debug_log('backend.py:60', 'CORS middleware added', {}, 'B')
+debug_log("backend.py:60", "CORS middleware added", {"origins": allowed_origins}, "B")
 
-# Инициализация БД при старте
-database.init_db()
-logger.info("Database initialized")
+
+@app.on_event("startup")
+async def on_startup():
+    database.init_db()
+    logger.info("Database initialized")
 
 
 class SalonCreate(BaseModel):
@@ -656,4 +678,5 @@ async def get_user_role_endpoint(request: Request, salon_id: Optional[str] = Non
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    return {"status": "ok", "time": now.isoformat().replace("+00:00", "Z")}
