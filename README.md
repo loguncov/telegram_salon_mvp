@@ -28,6 +28,35 @@ WEB_APP_URL=https://loguncov.github.io/telegram_salon_mvp/
 
 ### 3. Запуск проекта
 
+**Быстрый запуск (рекомендуется):**
+
+**Универсальный Python скрипт (работает на всех ОС):**
+```bash
+python start.py
+```
+
+**Альтернативные скрипты:**
+
+**Windows:**
+```bash
+start.bat          # Batch скрипт
+# или
+.\start.ps1         # PowerShell скрипт
+```
+
+**Linux/Mac:**
+```bash
+chmod +x start.sh
+./start.sh
+```
+
+Скрипты автоматически:
+- Создадут виртуальное окружение (если его нет)
+- Установят зависимости
+- Запустят Backend и Bot в отдельных окнах/процессах
+
+**Ручной запуск:**
+
 **Запуск Backend:**
 ```bash
 python -m uvicorn backend:app --reload --host 0.0.0.0 --port 8000

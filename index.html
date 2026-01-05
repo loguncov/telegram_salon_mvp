@@ -32,6 +32,25 @@
     input { flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid #d9deeb; font-size: 0.95em; }
     .inline-form button { white-space: nowrap; }
     .pill { padding: 4px 8px; border-radius: 999px; background: #eef2f7; font-size: 0.85em; color: #4a5a6b; }
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+    .modal { background: #fff; border-radius: 14px; max-width: 480px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: 0 8px 28px rgba(0,0,0,0.2); }
+    .modal-header { padding: 18px; border-bottom: 1px solid #eef1f6; display: flex; justify-content: space-between; align-items: center; }
+    .modal-body { padding: 18px; }
+    .modal-footer { padding: 18px; border-top: 1px solid #eef1f6; display: flex; gap: 8px; justify-content: flex-end; }
+    .radio-group { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .radio-item { display: flex; align-items: center; padding: 12px; border: 2px solid #eef1f6; border-radius: 10px; cursor: pointer; transition: all 0.15s ease; }
+    .radio-item:hover { border-color: #2b8cff; background: #f8fafc; }
+    .radio-item.selected { border-color: #2b8cff; background: #e8f2ff; }
+    .radio-item input[type="radio"] { margin-right: 10px; }
+    .datetime-input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #d9deeb; font-size: 0.95em; margin-top: 10px; }
+    .error-message { color: #f35050; font-size: 0.9em; margin-top: 8px; }
+    .success-message { color: #10b981; font-size: 0.9em; margin-top: 8px; }
+    .loading-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #f3f3f3; border-top: 2px solid #2b8cff; border-radius: 50%; animation: spin 1s linear infinite; margin-right: 8px; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1d2b3a; color: #fff; padding: 12px 20px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 2000; display: flex; align-items: center; gap: 10px; }
+    .toast.success { background: #10b981; }
+    .toast.error { background: #f35050; }
+    .toast.hidden { display: none; }
   </style>
 </head>
 <body>
@@ -90,10 +109,35 @@
           <span class="pill" id="services-count"></span>
         </div>
         <ul class="list" id="services-list"></ul>
-        <form id="add-service-form" class="inline-form">
-          <input type="text" id="service-name" placeholder="Название услуги" required>
-          <button class="primary" type="submit">Добавить</button>
+        <form id="add-service-form">
+          <input type="text" id="service-name" placeholder="Название услуги *" required style="margin-bottom: 8px;">
+          <input type="number" id="service-price" placeholder="Цена (руб.)" step="0.01" min="0" style="margin-bottom: 8px;">
+          <input type="number" id="service-duration" placeholder="Длительность (минуты)" min="1" style="margin-bottom: 8px;">
+          <textarea id="service-description" placeholder="Описание услуги" rows="3" style="width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #d9deeb; font-size: 0.95em; font-family: inherit; margin-bottom: 8px; resize: vertical;"></textarea>
+          <button class="primary" type="submit" style="width: 100%;">Добавить услугу</button>
         </form>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">Записи</div>
+            <div class="subtitle">Все записи салона</div>
+          </div>
+        </div>
+        <div style="margin-bottom: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
+          <select id="owner-appointments-filter-master" style="flex: 1; min-width: 120px; padding: 8px; border-radius: 8px; border: 1px solid #d9deeb;">
+            <option value="">Все мастера</option>
+          </select>
+          <select id="owner-appointments-filter-status" style="flex: 1; min-width: 120px; padding: 8px; border-radius: 8px; border: 1px solid #d9deeb;">
+            <option value="">Все статусы</option>
+            <option value="pending">Ожидает</option>
+            <option value="confirmed">Подтверждена</option>
+            <option value="cancelled">Отменена</option>
+            <option value="completed">Выполнена</option>
+          </select>
+        </div>
+        <ul class="list" id="owner-appointments-list"></ul>
       </div>
     </div>
 
@@ -137,8 +181,20 @@
         </div>
       </div>
 
+      <div class="section" id="client-tabs">
+        <div style="display: flex; gap: 8px; border-bottom: 1px solid #eef1f6; margin-bottom: 14px;">
+          <button class="secondary" id="client-tab-salons" style="border-radius: 0; border-bottom: 2px solid #2b8cff; padding-bottom: 8px;">Салоны</button>
+          <button class="secondary" id="client-tab-appointments" style="border-radius: 0; border-bottom: 2px solid transparent; padding-bottom: 8px;">Мои записи</button>
+        </div>
+      </div>
+
       <div class="section" id="client-salons-section">
         <ul class="list" id="client-salons-list"></ul>
+      </div>
+
+      <div class="section hidden" id="client-appointments-section">
+        <ul class="list" id="client-appointments-list"></ul>
+        <p class="muted" id="client-appointments-empty" style="text-align: center; margin-top: 20px;">Записей пока нет</p>
       </div>
 
       <div class="section hidden" id="client-salon-detail-section">
@@ -170,12 +226,58 @@
             <span class="pill" id="client-services-count"></span>
           </div>
           <ul class="list" id="client-services-list"></ul>
+          <div id="client-services-details" style="margin-top: 10px;"></div>
         </div>
 
         <div class="section">
           <button class="primary" id="client-book-btn" style="width: 100%;">Записаться</button>
-          <p class="muted" style="margin-top: 10px; text-align: center;">Функционал записи будет добавлен позже</p>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast уведомления -->
+  <div class="toast hidden" id="toast">
+    <span id="toast-message"></span>
+  </div>
+
+  <!-- Modal для записи -->
+  <div class="modal-overlay hidden" id="booking-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Записаться на услугу</h3>
+        <button class="secondary" id="close-booking-modal" style="padding: 4px 8px;">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="booking-step-1">
+          <div class="subtitle">Выберите мастера</div>
+          <div class="radio-group" id="masters-radio-group"></div>
+          <div class="error-message hidden" id="master-error"></div>
+        </div>
+        <div class="hidden" id="booking-step-2">
+          <div class="subtitle">Выберите услугу</div>
+          <div class="radio-group" id="services-radio-group"></div>
+          <div class="error-message hidden" id="service-error"></div>
+        </div>
+        <div class="hidden" id="booking-step-3">
+          <div class="subtitle">Выберите дату</div>
+          <input type="date" id="booking-date" class="datetime-input" required style="margin-bottom: 14px;">
+          <div class="subtitle" id="time-slots-title" style="display: none;">Выберите время</div>
+          <div class="radio-group" id="time-slots-group" style="display: none;"></div>
+          <div class="error-message hidden" id="datetime-error"></div>
+        </div>
+        <div class="hidden" id="booking-step-4">
+          <div class="subtitle">Подтверждение</div>
+          <div id="booking-summary" style="margin-top: 10px; padding: 12px; background: #f8fafc; border-radius: 10px;"></div>
+        </div>
+        <div class="success-message hidden" id="booking-success">
+          Запись успешно создана!
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="secondary" id="booking-prev-btn" style="display: none;">Назад</button>
+        <button class="primary" id="booking-next-btn">Далее</button>
+        <button class="primary hidden" id="booking-submit-btn">Подтвердить запись</button>
       </div>
     </div>
   </div>
@@ -230,21 +332,58 @@
         document.getElementById("error-text").textContent = message;
       }
 
-      async function fetchJson(path, options = {}) {
-        const res = await fetch(`${API_BASE}${path}`, {
-          ...options,
-          headers: { ...defaultHeaders, ...(options.headers || {}) },
-        });
+      function showToast(message, type = "info") {
+        const toast = document.getElementById("toast");
+        const toastMessage = document.getElementById("toast-message");
+        toastMessage.textContent = message;
+        toast.className = `toast ${type}`;
+        toast.classList.remove("hidden");
+        setTimeout(() => {
+          toast.classList.add("hidden");
+        }, 3000);
+      }
 
-        if (res.status === 204) return null;
-        const text = await res.text();
-        if (!res.ok) {
-          const err = new Error(text || "Request failed");
-          err.status = res.status;
+      function setLoading(element, isLoading, loadingText = "Загрузка...") {
+        if (isLoading) {
+          element.disabled = true;
+          const originalText = element.textContent;
+          element.dataset.originalText = originalText;
+          element.innerHTML = `<span class="loading-spinner"></span>${loadingText}`;
+        } else {
+          element.disabled = false;
+          element.textContent = element.dataset.originalText || element.textContent;
+        }
+      }
+
+      async function fetchJson(path, options = {}) {
+        try {
+          const res = await fetch(`${API_BASE}${path}`, {
+            ...options,
+            headers: { ...defaultHeaders, ...(options.headers || {}) },
+          });
+
+          if (res.status === 204) return null;
+          const text = await res.text();
+          if (!res.ok) {
+            let errorMessage = text || "Request failed";
+            try {
+              const errorData = JSON.parse(text);
+              errorMessage = errorData.detail || errorMessage;
+            } catch (e) {
+              // Если не JSON, используем текст как есть
+            }
+            const err = new Error(errorMessage);
+            err.status = res.status;
+            throw err;
+          }
+
+          return text ? JSON.parse(text) : null;
+        } catch (err) {
+          if (err.name === "TypeError" && err.message.includes("fetch")) {
+            throw new Error("Нет соединения с сервером. Проверьте, что backend запущен.");
+          }
           throw err;
         }
-
-        return text ? JSON.parse(text) : null;
       }
 
       async function getUserRole(salonId = null) {
@@ -289,7 +428,27 @@
         return data.items || [];
       }
 
+      async function loadClientAppointments() {
+        const data = await fetchJson("/api/client/appointments");
+        return data.items || [];
+      }
+
+      async function cancelAppointment(appointmentId) {
+        return fetchJson(`/api/client/appointments/${appointmentId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: "cancelled" }),
+        });
+      }
+
       let currentClientSalonId = null;
+      let currentMasters = [];
+      let currentServices = [];
+      let bookingState = {
+        step: 1,
+        masterId: null,
+        serviceId: null,
+        datetime: null
+      };
 
       async function createSalon(name) {
         return fetchJson("/api/owner/salon", {
@@ -309,15 +468,364 @@
         return fetchJson(`/api/owner/masters/${id}`, { method: "DELETE" });
       }
 
-      async function addService(name) {
+      async function addService(name, price = null, duration = null, description = null) {
+        const payload = { name };
+        if (price !== null) payload.price = price;
+        if (duration !== null) payload.duration = duration;
+        if (description !== null) payload.description = description;
         return fetchJson("/api/owner/services", {
           method: "POST",
-          body: JSON.stringify({ name }),
+          body: JSON.stringify(payload),
         });
       }
 
       async function deleteService(id) {
         return fetchJson(`/api/owner/services/${id}`, { method: "DELETE" });
+      }
+
+      async function createAppointment(salonId, masterId, serviceId, datetime) {
+        return fetchJson("/api/client/appointments", {
+          method: "POST",
+          body: JSON.stringify({
+            salon_id: salonId,
+            master_id: masterId,
+            service_id: serviceId,
+            datetime: datetime
+          }),
+        });
+      }
+
+      function openBookingModal() {
+        if (!currentClientSalonId) {
+          alert("Выберите салон");
+          return;
+        }
+        bookingState = { step: 1, masterId: null, serviceId: null, datetime: null };
+        document.getElementById("booking-modal").classList.remove("hidden");
+        loadBookingData();
+      }
+
+      function closeBookingModal() {
+        document.getElementById("booking-modal").classList.add("hidden");
+        bookingState = { step: 1, masterId: null, serviceId: null, datetime: null };
+        resetBookingModal();
+      }
+
+      function resetBookingModal() {
+        document.getElementById("booking-step-1").classList.remove("hidden");
+        document.getElementById("booking-step-2").classList.add("hidden");
+        document.getElementById("booking-step-3").classList.add("hidden");
+        document.getElementById("booking-step-4").classList.add("hidden");
+        document.getElementById("booking-success").classList.add("hidden");
+        document.getElementById("booking-prev-btn").style.display = "none";
+        document.getElementById("booking-next-btn").classList.remove("hidden");
+        document.getElementById("booking-submit-btn").classList.add("hidden");
+        document.getElementById("master-error").classList.add("hidden");
+        document.getElementById("service-error").classList.add("hidden");
+        document.getElementById("datetime-error").classList.add("hidden");
+        bookingState.step = 1;
+      }
+
+      async function loadAvailableSlots(masterId, date) {
+        try {
+          const data = await fetchJson(`/api/client/salons/${currentClientSalonId}/available-slots?master_id=${masterId}&date=${date}`);
+          return data.items || [];
+        } catch (err) {
+          console.error("Failed to load available slots:", err);
+          return [];
+        }
+      }
+
+      async function loadBookingData() {
+        try {
+          const [masters, services] = await Promise.all([
+            loadClientMasters(currentClientSalonId),
+            loadClientServices(currentClientSalonId)
+          ]);
+          currentMasters = masters;
+          currentServices = services;
+          renderBookingStep1();
+        } catch (err) {
+          showToast("Не удалось загрузить данные: " + err.message, "error");
+          closeBookingModal();
+        }
+      }
+
+      function renderBookingStep1() {
+        const group = document.getElementById("masters-radio-group");
+        group.innerHTML = "";
+        if (currentMasters.length === 0) {
+          group.innerHTML = '<div class="muted">Мастеров пока нет</div>';
+          return;
+        }
+        currentMasters.forEach((master) => {
+          const item = document.createElement("div");
+          item.className = "radio-item";
+          item.dataset.masterId = master.id;
+          item.innerHTML = `
+            <input type="radio" name="master" value="${master.id}" id="master-${master.id}">
+            <label for="master-${master.id}" style="cursor: pointer; flex: 1;">${master.name}</label>
+          `;
+          item.addEventListener("click", () => {
+            document.querySelectorAll("#masters-radio-group .radio-item").forEach(el => el.classList.remove("selected"));
+            item.classList.add("selected");
+            document.getElementById(`master-${master.id}`).checked = true;
+            bookingState.masterId = master.id;
+            document.getElementById("master-error").classList.add("hidden");
+          });
+          group.appendChild(item);
+        });
+      }
+
+      function renderBookingStep2() {
+        const group = document.getElementById("services-radio-group");
+        group.innerHTML = "";
+        if (currentServices.length === 0) {
+          group.innerHTML = '<div class="muted">Услуг пока нет</div>';
+          return;
+        }
+        currentServices.forEach((service) => {
+          const item = document.createElement("div");
+          item.className = "radio-item";
+          item.dataset.serviceId = service.id;
+          item.innerHTML = `
+            <input type="radio" name="service" value="${service.id}" id="service-${service.id}">
+            <label for="service-${service.id}" style="cursor: pointer; flex: 1;">${service.name}</label>
+          `;
+          item.addEventListener("click", () => {
+            document.querySelectorAll("#services-radio-group .radio-item").forEach(el => el.classList.remove("selected"));
+            item.classList.add("selected");
+            document.getElementById(`service-${service.id}`).checked = true;
+            bookingState.serviceId = service.id;
+            document.getElementById("service-error").classList.add("hidden");
+          });
+          group.appendChild(item);
+        });
+      }
+
+      function renderBookingStep3() {
+        const dateInput = document.getElementById("booking-date");
+        const now = new Date();
+        const minDate = now.toISOString().slice(0, 10);
+        dateInput.min = minDate;
+        dateInput.value = "";
+        
+        // Скрываем слоты времени до выбора даты
+        document.getElementById("time-slots-title").style.display = "none";
+        document.getElementById("time-slots-group").style.display = "none";
+        
+        // Обработчик выбора даты
+        dateInput.addEventListener("change", async () => {
+          const selectedDate = dateInput.value;
+          if (!selectedDate || !bookingState.masterId) return;
+          
+          document.getElementById("datetime-error").classList.add("hidden");
+          const slotsGroup = document.getElementById("time-slots-group");
+          slotsGroup.innerHTML = "";
+          slotsGroup.style.display = "block";
+          document.getElementById("time-slots-title").style.display = "block";
+          
+          // Показываем загрузку
+          const loadingItem = document.createElement("div");
+          loadingItem.className = "muted";
+          loadingItem.innerHTML = '<span class="loading-spinner"></span>Загрузка доступных слотов...';
+          slotsGroup.appendChild(loadingItem);
+          
+          try {
+            const slots = await loadAvailableSlots(bookingState.masterId, selectedDate);
+            
+            slotsGroup.innerHTML = "";
+            
+            if (slots.length === 0) {
+              const empty = document.createElement("div");
+              empty.className = "muted";
+              empty.textContent = "Нет доступных слотов на эту дату";
+              slotsGroup.appendChild(empty);
+              return;
+            }
+            
+            slots.forEach((slotTime) => {
+              const slotDate = new Date(slotTime);
+              const item = document.createElement("div");
+              item.className = "radio-item";
+              item.dataset.slotTime = slotTime;
+              const timeStr = slotDate.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+              item.innerHTML = `
+                <input type="radio" name="time-slot" value="${slotTime}" id="slot-${slotTime}">
+                <label for="slot-${slotTime}" style="cursor: pointer; flex: 1;">${timeStr}</label>
+              `;
+              item.addEventListener("click", () => {
+                document.querySelectorAll("#time-slots-group .radio-item").forEach(el => el.classList.remove("selected"));
+                item.classList.add("selected");
+                document.getElementById(`slot-${slotTime}`).checked = true;
+                bookingState.datetime = slotTime;
+                document.getElementById("datetime-error").classList.add("hidden");
+              });
+              slotsGroup.appendChild(item);
+            });
+          } catch (err) {
+            slotsGroup.innerHTML = "";
+            const error = document.createElement("div");
+            error.className = "error-message";
+            error.textContent = "Ошибка загрузки слотов: " + (err.message || "Неизвестная ошибка");
+            slotsGroup.appendChild(error);
+          }
+        });
+      }
+
+      function renderBookingStep4() {
+        const master = currentMasters.find(m => m.id === bookingState.masterId);
+        const service = currentServices.find(s => s.id === bookingState.serviceId);
+        const datetime = new Date(bookingState.datetime);
+        const summary = document.getElementById("booking-summary");
+        summary.innerHTML = `
+          <div style="margin-bottom: 8px;"><strong>Мастер:</strong> ${master?.name || ""}</div>
+          <div style="margin-bottom: 8px;"><strong>Услуга:</strong> ${service?.name || ""}</div>
+          <div><strong>Дата и время:</strong> ${datetime.toLocaleString("ru-RU", { 
+            year: "numeric", 
+            month: "long", 
+            day: "numeric", 
+            hour: "2-digit", 
+            minute: "2-digit" 
+          })}</div>
+        `;
+      }
+
+      function validateBookingStep() {
+        if (bookingState.step === 1) {
+          if (!bookingState.masterId) {
+            document.getElementById("master-error").textContent = "Выберите мастера";
+            document.getElementById("master-error").classList.remove("hidden");
+            return false;
+          }
+        } else if (bookingState.step === 2) {
+          if (!bookingState.serviceId) {
+            document.getElementById("service-error").textContent = "Выберите услугу";
+            document.getElementById("service-error").classList.remove("hidden");
+            return false;
+          }
+        } else if (bookingState.step === 3) {
+          const dateInput = document.getElementById("booking-date");
+          if (!dateInput.value) {
+            document.getElementById("datetime-error").textContent = "Выберите дату";
+            document.getElementById("datetime-error").classList.remove("hidden");
+            return false;
+          }
+          if (!bookingState.datetime) {
+            document.getElementById("datetime-error").textContent = "Выберите время";
+            document.getElementById("datetime-error").classList.remove("hidden");
+            return false;
+          }
+        }
+        return true;
+      }
+
+      function nextBookingStep() {
+        if (!validateBookingStep()) return;
+        
+        if (bookingState.step === 1) {
+          bookingState.step = 2;
+          document.getElementById("booking-step-1").classList.add("hidden");
+          document.getElementById("booking-step-2").classList.remove("hidden");
+          document.getElementById("booking-prev-btn").style.display = "block";
+          renderBookingStep2();
+        } else if (bookingState.step === 2) {
+          bookingState.step = 3;
+          document.getElementById("booking-step-2").classList.add("hidden");
+          document.getElementById("booking-step-3").classList.remove("hidden");
+          renderBookingStep3();
+        } else if (bookingState.step === 3) {
+          bookingState.step = 4;
+          document.getElementById("booking-step-3").classList.add("hidden");
+          document.getElementById("booking-step-4").classList.remove("hidden");
+          document.getElementById("booking-next-btn").classList.add("hidden");
+          document.getElementById("booking-submit-btn").classList.remove("hidden");
+          renderBookingStep4();
+        }
+      }
+
+      function prevBookingStep() {
+        if (bookingState.step === 2) {
+          bookingState.step = 1;
+          document.getElementById("booking-step-2").classList.add("hidden");
+          document.getElementById("booking-step-1").classList.remove("hidden");
+          document.getElementById("booking-prev-btn").style.display = "none";
+        } else if (bookingState.step === 3) {
+          bookingState.step = 2;
+          document.getElementById("booking-step-3").classList.add("hidden");
+          document.getElementById("booking-step-2").classList.remove("hidden");
+        } else if (bookingState.step === 4) {
+          bookingState.step = 3;
+          document.getElementById("booking-step-4").classList.add("hidden");
+          document.getElementById("booking-step-3").classList.remove("hidden");
+          document.getElementById("booking-next-btn").classList.remove("hidden");
+          document.getElementById("booking-submit-btn").classList.add("hidden");
+        }
+      }
+
+      async function submitBooking() {
+        const btn = document.getElementById("booking-submit-btn");
+        setLoading(btn, true, "Создаём запись...");
+        
+        try {
+          await createAppointment(
+            currentClientSalonId,
+            bookingState.masterId,
+            bookingState.serviceId,
+            bookingState.datetime
+          );
+          
+          document.getElementById("booking-step-4").classList.add("hidden");
+          document.getElementById("booking-submit-btn").classList.add("hidden");
+          document.getElementById("booking-prev-btn").style.display = "none";
+          document.getElementById("booking-success").classList.remove("hidden");
+          
+          showToast("Запись успешно создана", "success");
+          
+          setTimeout(() => {
+            closeBookingModal();
+            renderClientAppointments();
+          }, 2000);
+        } catch (err) {
+          let errorMsg = "Не удалось создать запись";
+          if (err.status === 409) {
+            errorMsg = "Время занято. Выберите другое время.";
+          } else if (err.status === 404) {
+            errorMsg = "Мастер или услуга не найдены";
+          } else if (err.status === 400) {
+            errorMsg = err.message || "Неверные данные";
+          } else if (err.message) {
+            errorMsg = err.message;
+          }
+          document.getElementById("datetime-error").textContent = errorMsg;
+          document.getElementById("datetime-error").classList.remove("hidden");
+          bookingState.step = 3;
+          document.getElementById("booking-step-4").classList.add("hidden");
+          document.getElementById("booking-step-3").classList.remove("hidden");
+          document.getElementById("booking-next-btn").classList.remove("hidden");
+          document.getElementById("booking-submit-btn").classList.add("hidden");
+        } finally {
+          setLoading(btn, false);
+        }
+      }
+
+      async function updateService(id, name, price = null, duration = null, description = null) {
+        const payload = {};
+        if (name !== null) payload.name = name;
+        if (price !== null) payload.price = price;
+        if (duration !== null) payload.duration = duration;
+        if (description !== null) payload.description = description;
+        return fetchJson(`/api/owner/services/${id}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+      }
+
+      async function updateSalon(name) {
+        return fetchJson("/api/owner/salon", {
+          method: "PATCH",
+          body: JSON.stringify({ name }),
+        });
       }
 
       function renderList(targetId, items, type) {
@@ -335,7 +843,42 @@
         items.forEach((item) => {
           const li = document.createElement("li");
           const span = document.createElement("span");
-          span.textContent = item.name;
+          let displayText = item.name;
+          if (type === "service" && (item.price || item.duration)) {
+            const parts = [];
+            if (item.price) parts.push(`${item.price} ₽`);
+            if (item.duration) parts.push(`${item.duration} мин`);
+            if (parts.length > 0) {
+              displayText += ` (${parts.join(", ")})`;
+            }
+          }
+          span.textContent = displayText;
+          span.style.flex = "1";
+          span.style.cursor = "pointer";
+          span.dataset.id = item.id;
+          span.dataset.type = type;
+          span.dataset.name = item.name;
+          if (type === "service") {
+            li.dataset.serviceData = JSON.stringify({
+              name: item.name,
+              price: item.price,
+              duration: item.duration,
+              description: item.description
+            });
+          }
+
+          const actionsDiv = document.createElement("div");
+          actionsDiv.style.display = "flex";
+          actionsDiv.style.gap = "8px";
+
+          if (type === "service") {
+            const editBtn = document.createElement("button");
+            editBtn.className = "secondary";
+            editBtn.textContent = "Изменить";
+            editBtn.dataset.id = item.id;
+            editBtn.dataset.type = "service-edit";
+            actionsDiv.appendChild(editBtn);
+          }
 
           const btn = document.createElement("button");
           btn.className = "danger";
@@ -343,14 +886,35 @@
           btn.dataset.id = item.id;
           btn.dataset.type = type;
 
+          actionsDiv.appendChild(btn);
           li.appendChild(span);
-          li.appendChild(btn);
+          li.appendChild(actionsDiv);
           list.appendChild(li);
         });
       }
 
+      async function loadOwnerAppointments(masterId = null, status = null) {
+        let url = "/api/owner/appointments?";
+        if (masterId) url += `master_id=${masterId}&`;
+        if (status) url += `status=${status}&`;
+        const data = await fetchJson(url);
+        return data.items || [];
+      }
+
+      async function updateOwnerAppointment(appointmentId, status) {
+        return fetchJson(`/api/owner/appointments/${appointmentId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status }),
+        });
+      }
+
       function renderSalon(salon) {
-        document.getElementById("salon-name-text").textContent = salon.name;
+        const salonNameText = document.getElementById("salon-name-text");
+        salonNameText.textContent = salon.name;
+        salonNameText.style.cursor = "pointer";
+        salonNameText.dataset.salonId = salon.id;
+        salonNameText.dataset.salonName = salon.name;
+        
         document.getElementById("salon-id").textContent = `ID: ${salon.id}`;
 
         renderList("masters-list", salon.masters, "master");
@@ -358,6 +922,134 @@
 
         document.getElementById("masters-count").textContent = `${salon.masters.length}`;
         document.getElementById("services-count").textContent = `${salon.services.length}`;
+
+        // Заполняем фильтр мастеров
+        const masterFilter = document.getElementById("owner-appointments-filter-master");
+        if (masterFilter) {
+          masterFilter.innerHTML = '<option value="">Все мастера</option>';
+          salon.masters.forEach(master => {
+            const option = document.createElement("option");
+            option.value = master.id;
+            option.textContent = master.name;
+            masterFilter.appendChild(option);
+          });
+        }
+
+        // Загружаем и отображаем записи
+        renderOwnerAppointments(salon);
+      }
+
+      async function renderOwnerAppointments(salon) {
+        const masterFilter = document.getElementById("owner-appointments-filter-master");
+        const statusFilter = document.getElementById("owner-appointments-filter-status");
+        const masterId = masterFilter.value || null;
+        const status = statusFilter.value || null;
+
+        try {
+          const appointments = await loadOwnerAppointments(masterId, status);
+          const appointmentsList = document.getElementById("owner-appointments-list");
+          appointmentsList.innerHTML = "";
+
+          if (!appointments || appointments.length === 0) {
+            const empty = document.createElement("li");
+            empty.className = "muted";
+            empty.textContent = "Записей не найдено";
+            appointmentsList.appendChild(empty);
+            return;
+          }
+
+          appointments.forEach((apt) => {
+            const master = salon.masters?.find(m => m.id === apt.master_id);
+            const service = salon.services?.find(s => s.id === apt.service_id);
+            const datetime = new Date(apt.datetime);
+            const statusColors = {
+              pending: "#f59e0b",
+              confirmed: "#10b981",
+              cancelled: "#6b7280",
+              completed: "#3b82f6"
+            };
+            const statusTexts = {
+              pending: "Ожидает",
+              confirmed: "Подтверждена",
+              cancelled: "Отменена",
+              completed: "Выполнена"
+            };
+            
+            const li = document.createElement("li");
+            li.style.flexDirection = "column";
+            li.style.alignItems = "flex-start";
+            li.style.gap = "8px";
+            
+            const actionsDiv = document.createElement("div");
+            actionsDiv.style.display = "flex";
+            actionsDiv.style.gap = "8px";
+            actionsDiv.style.width = "100%";
+            actionsDiv.style.marginTop = "8px";
+            actionsDiv.style.flexWrap = "wrap";
+            
+            if (apt.status === "pending") {
+              const confirmBtn = document.createElement("button");
+              confirmBtn.className = "primary";
+              confirmBtn.textContent = "Подтвердить";
+              confirmBtn.dataset.appointmentId = apt.id;
+              confirmBtn.dataset.action = "confirmed";
+              confirmBtn.dataset.role = "owner";
+              actionsDiv.appendChild(confirmBtn);
+              
+              const cancelBtn = document.createElement("button");
+              cancelBtn.className = "danger";
+              cancelBtn.textContent = "Отменить";
+              cancelBtn.dataset.appointmentId = apt.id;
+              cancelBtn.dataset.action = "cancelled";
+              cancelBtn.dataset.role = "owner";
+              actionsDiv.appendChild(cancelBtn);
+            } else if (apt.status === "confirmed") {
+              const completeBtn = document.createElement("button");
+              completeBtn.className = "primary";
+              completeBtn.textContent = "Выполнено";
+              completeBtn.dataset.appointmentId = apt.id;
+              completeBtn.dataset.action = "completed";
+              completeBtn.dataset.role = "owner";
+              actionsDiv.appendChild(completeBtn);
+              
+              const cancelBtn = document.createElement("button");
+              cancelBtn.className = "danger";
+              cancelBtn.textContent = "Отменить";
+              cancelBtn.dataset.appointmentId = apt.id;
+              cancelBtn.dataset.action = "cancelled";
+              cancelBtn.dataset.role = "owner";
+              actionsDiv.appendChild(cancelBtn);
+            }
+            
+            li.innerHTML = `
+              <div style="width: 100%;">
+                <div style="font-weight: 600; margin-bottom: 4px;">${service?.name || "Услуга"}</div>
+                <div class="muted" style="font-size: 0.85em; margin-bottom: 4px;">
+                  ${master?.name || "Мастер"} • ${datetime.toLocaleString("ru-RU", { 
+                    year: "numeric", 
+                    month: "long", 
+                    day: "numeric", 
+                    hour: "2-digit", 
+                    minute: "2-digit" 
+                  })}
+                </div>
+                <span style="font-size: 0.85em; color: ${statusColors[apt.status] || "#6b7280"};">
+                  ${statusTexts[apt.status] || apt.status}
+                </span>
+              </div>
+            `;
+            li.appendChild(actionsDiv);
+            appointmentsList.appendChild(li);
+          });
+        } catch (err) {
+          console.error("Failed to load appointments:", err);
+          const appointmentsList = document.getElementById("owner-appointments-list");
+          appointmentsList.innerHTML = "";
+          const empty = document.createElement("li");
+          empty.className = "muted";
+          empty.textContent = "Ошибка загрузки записей";
+          appointmentsList.appendChild(empty);
+        }
       }
 
       function renderClientSalons(salons) {
@@ -389,6 +1081,93 @@
         });
       }
 
+      async function renderClientAppointments() {
+        const list = document.getElementById("client-appointments-list");
+        const emptyMsg = document.getElementById("client-appointments-empty");
+        list.innerHTML = "";
+
+        try {
+          const appointments = await loadClientAppointments();
+          
+          if (!appointments || appointments.length === 0) {
+            emptyMsg.classList.remove("hidden");
+            return;
+          }
+
+          emptyMsg.classList.add("hidden");
+
+          // Загружаем информацию о салонах, мастерах и услугах для отображения
+          const salonMap = {};
+          const salonIds = [...new Set(appointments.map(apt => apt.salon_id))];
+          
+          for (const salonId of salonIds) {
+            try {
+              const salon = await loadClientSalon(salonId);
+              const masters = await loadClientMasters(salonId);
+              const services = await loadClientServices(salonId);
+              salonMap[salonId] = {
+                ...salon,
+                masters,
+                services
+              };
+            } catch (err) {
+              console.error(`Failed to load salon ${salonId}:`, err);
+            }
+          }
+
+          appointments.forEach((apt) => {
+            const salon = salonMap[apt.salon_id];
+            const master = salon?.masters?.find(m => m.id === apt.master_id);
+            const service = salon?.services?.find(s => s.id === apt.service_id);
+            
+            const li = document.createElement("li");
+            const datetime = new Date(apt.datetime);
+            const statusColors = {
+              pending: "#f59e0b",
+              confirmed: "#10b981",
+              cancelled: "#6b7280",
+              completed: "#3b82f6"
+            };
+            const statusTexts = {
+              pending: "Ожидает",
+              confirmed: "Подтверждена",
+              cancelled: "Отменена",
+              completed: "Выполнена"
+            };
+            
+            li.innerHTML = `
+              <div style="flex: 1;">
+                <div style="font-weight: 600; margin-bottom: 4px;">${service?.name || "Услуга"}</div>
+                <div class="muted" style="font-size: 0.85em; margin-bottom: 4px;">
+                  ${master?.name || "Мастер"} • ${salon?.name || "Салон"}
+                </div>
+                <div class="muted" style="font-size: 0.85em; margin-bottom: 4px;">
+                  ${datetime.toLocaleString("ru-RU", { 
+                    year: "numeric", 
+                    month: "long", 
+                    day: "numeric", 
+                    hour: "2-digit", 
+                    minute: "2-digit" 
+                  })}
+                </div>
+                <span style="font-size: 0.85em; color: ${statusColors[apt.status] || "#6b7280"};">
+                  ${statusTexts[apt.status] || apt.status}
+                </span>
+              </div>
+              ${apt.status === "pending" || apt.status === "confirmed" ? 
+                `<button class="danger" data-appointment-id="${apt.id}" style="white-space: nowrap;">Отменить</button>` : 
+                ""
+              }
+            `;
+            list.appendChild(li);
+          });
+        } catch (err) {
+          console.error(err);
+          emptyMsg.textContent = "Ошибка загрузки записей";
+          emptyMsg.classList.remove("hidden");
+        }
+      }
+
       async function showClientSalonDetail(salonId) {
         currentClientSalonId = salonId;
         document.getElementById("client-salons-section").classList.add("hidden");
@@ -403,7 +1182,35 @@
 
           document.getElementById("client-salon-name-text").textContent = salon.name;
           renderList("client-masters-list", masters, "client-master");
-          renderList("client-services-list", services, "client-service");
+          
+          // Отображаем услуги с дополнительной информацией
+          const servicesList = document.getElementById("client-services-list");
+          servicesList.innerHTML = "";
+          if (services.length === 0) {
+            const empty = document.createElement("li");
+            empty.className = "muted";
+            empty.textContent = "Услуг пока нет";
+            servicesList.appendChild(empty);
+          } else {
+            services.forEach((service) => {
+              const li = document.createElement("li");
+              let serviceText = service.name;
+              const details = [];
+              if (service.price) details.push(`${service.price} ₽`);
+              if (service.duration) details.push(`${service.duration} мин`);
+              if (details.length > 0) {
+                serviceText += ` • ${details.join(", ")}`;
+              }
+              li.innerHTML = `
+                <div>
+                  <div style="font-weight: 600;">${serviceText}</div>
+                  ${service.description ? `<div class="muted" style="font-size: 0.85em; margin-top: 4px;">${service.description}</div>` : ""}
+                </div>
+              `;
+              servicesList.appendChild(li);
+            });
+          }
+          
           document.getElementById("client-masters-count").textContent = `${masters.length}`;
           document.getElementById("client-services-count").textContent = `${services.length}`;
         } catch (err) {
@@ -411,17 +1218,127 @@
         }
       }
 
-      function renderMasterSalon(salon) {
+      async function loadMasterAppointments() {
+        const data = await fetchJson("/api/master/appointments");
+        return data.items || [];
+      }
+
+      async function updateMasterAppointment(appointmentId, status) {
+        return fetchJson(`/api/master/appointments/${appointmentId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status }),
+        });
+      }
+
+      async function renderMasterSalon(salon) {
         document.getElementById("master-salon-name-text").textContent = salon.name;
         renderList("master-services-list", salon.services, "master-service");
         document.getElementById("master-services-count").textContent = `${salon.services.length}`;
 
+        // Загружаем и отображаем записи
+        try {
+          const appointments = await loadMasterAppointments();
+          renderMasterAppointments(appointments, salon);
+        } catch (err) {
+          console.error("Failed to load appointments:", err);
+          const appointmentsList = document.getElementById("master-appointments-list");
+          appointmentsList.innerHTML = "";
+          const empty = document.createElement("li");
+          empty.className = "muted";
+          empty.textContent = "Ошибка загрузки записей";
+          appointmentsList.appendChild(empty);
+        }
+      }
+
+      function renderMasterAppointments(appointments, salon) {
         const appointmentsList = document.getElementById("master-appointments-list");
         appointmentsList.innerHTML = "";
-        const empty = document.createElement("li");
-        empty.className = "muted";
-        empty.textContent = "Записей пока нет";
-        appointmentsList.appendChild(empty);
+
+        if (!appointments || appointments.length === 0) {
+          const empty = document.createElement("li");
+          empty.className = "muted";
+          empty.textContent = "Записей пока нет";
+          appointmentsList.appendChild(empty);
+          return;
+        }
+
+        appointments.forEach((apt) => {
+          const service = salon.services?.find(s => s.id === apt.service_id);
+          const datetime = new Date(apt.datetime);
+          const statusColors = {
+            pending: "#f59e0b",
+            confirmed: "#10b981",
+            cancelled: "#6b7280",
+            completed: "#3b82f6"
+          };
+          const statusTexts = {
+            pending: "Ожидает",
+            confirmed: "Подтверждена",
+            cancelled: "Отменена",
+            completed: "Выполнена"
+          };
+          
+          const li = document.createElement("li");
+          li.style.flexDirection = "column";
+          li.style.alignItems = "flex-start";
+          li.style.gap = "8px";
+          
+          const actionsDiv = document.createElement("div");
+          actionsDiv.style.display = "flex";
+          actionsDiv.style.gap = "8px";
+          actionsDiv.style.width = "100%";
+          actionsDiv.style.marginTop = "8px";
+          
+          if (apt.status === "pending") {
+            const confirmBtn = document.createElement("button");
+            confirmBtn.className = "primary";
+            confirmBtn.textContent = "Подтвердить";
+            confirmBtn.dataset.appointmentId = apt.id;
+            confirmBtn.dataset.action = "confirmed";
+            actionsDiv.appendChild(confirmBtn);
+            
+            const cancelBtn = document.createElement("button");
+            cancelBtn.className = "danger";
+            cancelBtn.textContent = "Отменить";
+            cancelBtn.dataset.appointmentId = apt.id;
+            cancelBtn.dataset.action = "cancelled";
+            actionsDiv.appendChild(cancelBtn);
+          } else if (apt.status === "confirmed") {
+            const completeBtn = document.createElement("button");
+            completeBtn.className = "primary";
+            completeBtn.textContent = "Выполнено";
+            completeBtn.dataset.appointmentId = apt.id;
+            completeBtn.dataset.action = "completed";
+            actionsDiv.appendChild(completeBtn);
+            
+            const cancelBtn = document.createElement("button");
+            cancelBtn.className = "danger";
+            cancelBtn.textContent = "Отменить";
+            cancelBtn.dataset.appointmentId = apt.id;
+            cancelBtn.dataset.action = "cancelled";
+            actionsDiv.appendChild(cancelBtn);
+          }
+          
+          li.innerHTML = `
+            <div style="width: 100%;">
+              <div style="font-weight: 600; margin-bottom: 4px;">${service?.name || "Услуга"}</div>
+              <div class="muted" style="font-size: 0.85em; margin-bottom: 4px;">
+                ${datetime.toLocaleString("ru-RU", { 
+                  year: "numeric", 
+                  month: "long", 
+                  day: "numeric", 
+                  hour: "2-digit", 
+                  minute: "2-digit" 
+                })}
+              </div>
+              <span style="font-size: 0.85em; color: ${statusColors[apt.status] || "#6b7280"};">
+                ${statusTexts[apt.status] || apt.status}
+              </span>
+            </div>
+          `;
+          li.appendChild(actionsDiv);
+          appointmentsList.appendChild(li);
+        });
       }
 
       async function render() {
@@ -458,6 +1375,8 @@
             }
             renderClientSalons(salons);
             setState("client");
+            // Загружаем записи при первом открытии
+            renderClientAppointments();
           }
         } catch (err) {
           console.error(err);
@@ -469,19 +1388,21 @@
         e.preventDefault();
         const input = document.getElementById("salon-name");
         const name = input.value.trim();
-        if (!name) return;
+        if (!name) {
+          showToast("Введите название салона", "error");
+          return;
+        }
         const btn = e.submitter;
-        btn.disabled = true;
-        btn.textContent = "Создаём…";
+        setLoading(btn, true, "Создаём…");
         try {
           await createSalon(name);
           input.value = "";
+          showToast("Салон успешно создан", "success");
           await render();
         } catch (err) {
-          alert(err.message || "Не удалось создать салон");
+          showToast(err.message || "Не удалось создать салон", "error");
         } finally {
-          btn.disabled = false;
-          btn.textContent = "Создать";
+          setLoading(btn, false);
         }
       });
 
@@ -489,47 +1410,142 @@
         e.preventDefault();
         const input = document.getElementById("master-name");
         const name = input.value.trim();
-        if (!name) return;
+        if (!name) {
+          showToast("Введите имя мастера", "error");
+          return;
+        }
         const btn = e.submitter;
-        btn.disabled = true;
-        btn.textContent = "Добавляем…";
+        setLoading(btn, true, "Добавляем…");
         try {
           await addMaster(name);
           input.value = "";
+          showToast("Мастер успешно добавлен", "success");
           await render();
         } catch (err) {
-          alert(err.message || "Не удалось добавить мастера");
+          showToast(err.message || "Не удалось добавить мастера", "error");
         } finally {
-          btn.disabled = false;
-          btn.textContent = "Добавить";
+          setLoading(btn, false);
         }
       });
 
       document.getElementById("add-service-form").addEventListener("submit", async (e) => {
         e.preventDefault();
-        const input = document.getElementById("service-name");
-        const name = input.value.trim();
-        if (!name) return;
+        const nameInput = document.getElementById("service-name");
+        const priceInput = document.getElementById("service-price");
+        const durationInput = document.getElementById("service-duration");
+        const descriptionInput = document.getElementById("service-description");
+        
+        const name = nameInput.value.trim();
+        if (!name) {
+          showToast("Введите название услуги", "error");
+          return;
+        }
+        
+        const price = priceInput.value ? parseFloat(priceInput.value) : null;
+        const duration = durationInput.value ? parseInt(durationInput.value) : null;
+        const description = descriptionInput.value.trim() || null;
+        
         const btn = e.submitter;
-        btn.disabled = true;
-        btn.textContent = "Добавляем…";
+        setLoading(btn, true, "Добавляем…");
         try {
-          await addService(name);
-          input.value = "";
+          await addService(name, price, duration, description);
+          nameInput.value = "";
+          priceInput.value = "";
+          durationInput.value = "";
+          descriptionInput.value = "";
+          showToast("Услуга успешно добавлена", "success");
           await render();
         } catch (err) {
-          alert(err.message || "Не удалось добавить услугу");
+          showToast(err.message || "Не удалось добавить услугу", "error");
         } finally {
-          btn.disabled = false;
-          btn.textContent = "Добавить";
+          setLoading(btn, false);
         }
       });
 
       document.addEventListener("click", async (e) => {
+        // Редактирование названия салона
+        if (e.target.id === "salon-name-text") {
+          const currentName = e.target.dataset.salonName;
+          const newName = prompt("Введите новое название салона:", currentName);
+          if (newName && newName.trim() && newName !== currentName) {
+            try {
+              await updateSalon(newName.trim());
+              await render();
+            } catch (err) {
+              alert(err.message || "Не удалось обновить название салона");
+            }
+          }
+        }
+        
+        // Редактирование услуги
+        if (e.target.matches("button[data-type='service-edit']")) {
+          const id = e.target.dataset.id;
+          const serviceItem = e.target.closest("li");
+          const serviceData = JSON.parse(serviceItem.dataset.serviceData || "{}");
+          
+          // Создаем модальное окно для редактирования
+          const editModal = document.createElement("div");
+          editModal.className = "modal-overlay";
+          editModal.innerHTML = `
+            <div class="modal" style="max-width: 400px;">
+              <div class="modal-header">
+                <h3>Редактировать услугу</h3>
+                <button class="secondary" id="close-edit-service-modal" style="padding: 4px 8px;">✕</button>
+              </div>
+              <div class="modal-body">
+                <input type="text" id="edit-service-name" placeholder="Название услуги *" value="${serviceData.name || ""}" required style="margin-bottom: 8px; width: 100%;">
+                <input type="number" id="edit-service-price" placeholder="Цена (руб.)" step="0.01" min="0" value="${serviceData.price || ""}" style="margin-bottom: 8px; width: 100%;">
+                <input type="number" id="edit-service-duration" placeholder="Длительность (минуты)" min="1" value="${serviceData.duration || ""}" style="margin-bottom: 8px; width: 100%;">
+                <textarea id="edit-service-description" placeholder="Описание услуги" rows="3" style="width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #d9deeb; font-size: 0.95em; font-family: inherit; margin-bottom: 8px; resize: vertical;">${serviceData.description || ""}</textarea>
+              </div>
+              <div class="modal-footer">
+                <button class="secondary" id="cancel-edit-service">Отмена</button>
+                <button class="primary" id="save-edit-service">Сохранить</button>
+              </div>
+            </div>
+          `;
+          document.body.appendChild(editModal);
+          
+          const closeEditModal = () => editModal.remove();
+          document.getElementById("close-edit-service-modal").addEventListener("click", closeEditModal);
+          document.getElementById("cancel-edit-service").addEventListener("click", closeEditModal);
+          
+          document.getElementById("save-edit-service").addEventListener("click", async () => {
+            const nameInput = document.getElementById("edit-service-name");
+            const priceInput = document.getElementById("edit-service-price");
+            const durationInput = document.getElementById("edit-service-duration");
+            const descriptionInput = document.getElementById("edit-service-description");
+            
+            const name = nameInput.value.trim();
+            if (!name) {
+              showToast("Введите название услуги", "error");
+              return;
+            }
+            
+            const price = priceInput.value ? parseFloat(priceInput.value) : null;
+            const duration = durationInput.value ? parseInt(durationInput.value) : null;
+            const description = descriptionInput.value.trim() || null;
+            
+            const btn = document.getElementById("save-edit-service");
+            setLoading(btn, true, "Сохраняем...");
+            try {
+              await updateService(id, name, price, duration, description);
+              showToast("Услуга успешно обновлена", "success");
+              closeEditModal();
+              await render();
+            } catch (err) {
+              showToast(err.message || "Не удалось обновить услугу", "error");
+            } finally {
+              setLoading(btn, false);
+            }
+          });
+        }
+        
         if (e.target.matches("button.danger")) {
           const id = e.target.dataset.id;
           const type = e.target.dataset.type;
           if (!id || !type) return;
+          if (!confirm(`Вы уверены, что хотите удалить ${type === "master" ? "мастера" : "услугу"}?`)) return;
           try {
             if (type === "master") await deleteMaster(id);
             if (type === "service") await deleteService(id);
@@ -538,9 +1554,83 @@
             alert(err.message || "Не удалось удалить");
           }
         }
+        
+        // Обработка действий мастера с записями
+        if (e.target.matches("button[data-action][data-role='master']")) {
+          const appointmentId = e.target.dataset.appointmentId;
+          const action = e.target.dataset.action;
+          if (!appointmentId || !action) return;
+          
+          const btn = e.target;
+          const originalText = btn.textContent;
+          btn.disabled = true;
+          btn.textContent = "Обновляем...";
+          
+          try {
+            await updateMasterAppointment(appointmentId, action);
+            // Перезагружаем данные мастера
+            const salon = await loadMasterSalon();
+            if (salon) {
+              await renderMasterSalon(salon);
+            }
+          } catch (err) {
+            alert(err.message || "Не удалось обновить запись");
+          } finally {
+            btn.disabled = false;
+            btn.textContent = originalText;
+          }
+        }
+        
+        // Обработка действий владельца с записями
+        if (e.target.matches("button[data-action][data-role='owner']")) {
+          const appointmentId = e.target.dataset.appointmentId;
+          const action = e.target.dataset.action;
+          if (!appointmentId || !action) return;
+          
+          const btn = e.target;
+          const originalText = btn.textContent;
+          btn.disabled = true;
+          btn.textContent = "Обновляем...";
+          
+          try {
+            await updateOwnerAppointment(appointmentId, action);
+            // Перезагружаем данные салона
+            const salon = await loadSalon();
+            if (salon) {
+              renderSalon(salon);
+            }
+          } catch (err) {
+            alert(err.message || "Не удалось обновить запись");
+          } finally {
+            btn.disabled = false;
+            btn.textContent = originalText;
+          }
+        }
       });
 
-      document.getElementById("refresh-btn")?.addEventListener("click", render);
+      document.getElementById("refresh-btn")?.addEventListener("click", async () => {
+        const salon = await loadSalon();
+        if (salon) {
+          renderSalon(salon);
+        } else {
+          await render();
+        }
+      });
+      
+      // Фильтры записей владельца
+      document.getElementById("owner-appointments-filter-master")?.addEventListener("change", async () => {
+        const salon = await loadSalon();
+        if (salon) {
+          await renderOwnerAppointments(salon);
+        }
+      });
+      
+      document.getElementById("owner-appointments-filter-status")?.addEventListener("change", async () => {
+        const salon = await loadSalon();
+        if (salon) {
+          await renderOwnerAppointments(salon);
+        }
+      });
       document.getElementById("master-refresh-btn")?.addEventListener("click", render);
       document.getElementById("retry-btn").addEventListener("click", render);
 
@@ -550,8 +1640,57 @@
         document.getElementById("client-salon-detail-section").classList.add("hidden");
       });
 
-      document.getElementById("client-book-btn")?.addEventListener("click", () => {
-        alert("Функционал записи будет добавлен позже");
+      // Переключение вкладок клиента
+      document.getElementById("client-tab-salons")?.addEventListener("click", () => {
+        document.getElementById("client-salons-section").classList.remove("hidden");
+        document.getElementById("client-appointments-section").classList.add("hidden");
+        document.getElementById("client-salon-detail-section").classList.add("hidden");
+        document.getElementById("client-tab-salons").style.borderBottomColor = "#2b8cff";
+        document.getElementById("client-tab-appointments").style.borderBottomColor = "transparent";
+      });
+
+      document.getElementById("client-tab-appointments")?.addEventListener("click", () => {
+        document.getElementById("client-salons-section").classList.add("hidden");
+        document.getElementById("client-appointments-section").classList.remove("hidden");
+        document.getElementById("client-salon-detail-section").classList.add("hidden");
+        document.getElementById("client-tab-salons").style.borderBottomColor = "transparent";
+        document.getElementById("client-tab-appointments").style.borderBottomColor = "#2b8cff";
+        renderClientAppointments();
+      });
+
+      // Обработка отмены записи
+      document.addEventListener("click", async (e) => {
+        if (e.target.matches("button[data-appointment-id]")) {
+          const appointmentId = e.target.dataset.appointmentId;
+          if (!appointmentId) return;
+          if (!confirm("Вы уверены, что хотите отменить запись?")) return;
+          
+          const btn = e.target;
+          btn.disabled = true;
+          btn.textContent = "Отменяем...";
+          try {
+            await cancelAppointment(appointmentId);
+            await renderClientAppointments();
+          } catch (err) {
+            alert(err.message || "Не удалось отменить запись");
+          } finally {
+            btn.disabled = false;
+            btn.textContent = "Отменить";
+          }
+        }
+      });
+
+      document.getElementById("client-book-btn")?.addEventListener("click", openBookingModal);
+      document.getElementById("close-booking-modal")?.addEventListener("click", closeBookingModal);
+      document.getElementById("booking-next-btn")?.addEventListener("click", nextBookingStep);
+      document.getElementById("booking-prev-btn")?.addEventListener("click", prevBookingStep);
+      document.getElementById("booking-submit-btn")?.addEventListener("click", submitBooking);
+      
+      // Закрытие модального окна при клике на overlay
+      document.getElementById("booking-modal")?.addEventListener("click", (e) => {
+        if (e.target.id === "booking-modal") {
+          closeBookingModal();
+        }
       });
 
       render();

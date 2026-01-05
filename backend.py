@@ -4,12 +4,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 import uuid
 import logging
 import json
 from datetime import datetime
 from pathlib import Path
+import database
 
 # #region agent log
 def debug_log(location, message, data=None, hypothesis_id=None):
@@ -75,10 +76,9 @@ app.add_middleware(
 )
 debug_log('backend.py:60', 'CORS middleware added', {}, 'B')
 
-# In-memory storage prepared for future DB move
-DB: Dict[str, Dict] = {
-    "salons": {},  # salon_id -> {id, name, owner_id, masters: [{id, name, telegram_id}], services: [{id, name}], appointments: [{id, salon_id, master_id, service_id, client_id, datetime, status}]}
-}
+# Инициализация БД при старте
+database.init_db()
+logger.info("Database initialized")
 
 
 class SalonCreate(BaseModel):
@@ -96,6 +96,20 @@ class MasterUpdate(BaseModel):
 
 class ServiceCreate(BaseModel):
     name: str
+    price: Optional[float] = None
+    duration: Optional[int] = None  # в минутах
+    description: Optional[str] = None
+
+
+class ServiceUpdate(BaseModel):
+    name: Optional[str] = None
+    price: Optional[float] = None
+    duration: Optional[int] = None
+    description: Optional[str] = None
+
+
+class SalonUpdate(BaseModel):
+    name: Optional[str] = None
 
 
 class AppointmentCreate(BaseModel):
@@ -103,6 +117,10 @@ class AppointmentCreate(BaseModel):
     master_id: str
     service_id: str
     datetime: str  # ISO format datetime string
+
+
+class AppointmentUpdate(BaseModel):
+    status: Optional[str] = None
 
 
 def require_user_id(request: Request) -> str:
@@ -113,14 +131,11 @@ def require_user_id(request: Request) -> str:
 
 
 def get_owner_salon(owner_id: str) -> Optional[Dict]:
-    for salon in DB["salons"].values():
-        if salon["owner_id"] == owner_id:
-            return salon
-    return None
+    return database.get_owner_salon(owner_id)
 
 
 def get_salon_by_id(salon_id: str) -> Optional[Dict]:
-    return DB["salons"].get(salon_id)
+    return database.get_salon_by_id(salon_id)
 
 
 def is_owner(salon: Dict, user_id: str) -> bool:
@@ -147,11 +162,14 @@ def get_user_role(user_id: str, salon_id: Optional[str] = None) -> str:
                 return "master"
     
     # Проверяем все салоны, если salon_id не указан
-    for salon in DB["salons"].values():
-        if is_owner(salon, user_id):
-            return "owner"
-        if is_master(salon, user_id):
-            return "master"
+    salons = database.get_all_salons()
+    for salon_data in salons:
+        salon = get_salon_by_id(salon_data["id"])
+        if salon:
+            if is_owner(salon, user_id):
+                return "owner"
+            if is_master(salon, user_id):
+                return "master"
     
     return "client"
 
@@ -171,17 +189,19 @@ async def owner_create_salon(request: Request, payload: SalonCreate):
     if get_owner_salon(owner_id):
         raise HTTPException(status_code=400, detail="Salon already exists")
 
-    salon_id = str(uuid.uuid4())
-    salon = {
-        "id": salon_id,
-        "name": payload.name or "Мой салон",
-        "owner_id": owner_id,
-        "masters": [],
-        "services": [],
-        "appointments": [],
-    }
-    DB["salons"][salon_id] = salon
+    salon = database.create_salon(payload.name or "Мой салон", owner_id)
     return salon
+
+
+@app.patch("/api/owner/salon")
+async def owner_update_salon(request: Request, payload: SalonUpdate):
+    owner_id = require_user_id(request)
+    salon = get_owner_salon(owner_id)
+    if not salon:
+        raise HTTPException(status_code=404, detail="Salon not found")
+    
+    updated_salon = database.update_salon(salon["id"], payload.name)
+    return updated_salon
 
 
 # --- Masters ---
@@ -201,13 +221,7 @@ async def owner_add_master(request: Request, master: MasterCreate):
     if not salon:
         raise HTTPException(status_code=404, detail="Salon not found")
 
-    master_id = str(uuid.uuid4())
-    master_obj = {
-        "id": master_id,
-        "name": master.name,
-        "telegram_id": master.telegram_id
-    }
-    salon["masters"].append(master_obj)
+    master_obj = database.create_master(salon["id"], master.name, master.telegram_id)
     return master_obj
 
 
@@ -218,12 +232,15 @@ async def owner_update_master(request: Request, master_id: str, payload: MasterU
     if not salon:
         raise HTTPException(status_code=404, detail="Salon not found")
 
-    for m in salon["masters"]:
-        if m["id"] == master_id:
-            if payload.name:
-                m["name"] = payload.name
-            return m
-    raise HTTPException(status_code=404, detail="Master not found")
+    # Проверяем, что мастер принадлежит салону
+    master_ids = [m["id"] for m in salon.get("masters", [])]
+    if master_id not in master_ids:
+        raise HTTPException(status_code=404, detail="Master not found")
+    
+    updated_master = database.update_master(master_id, payload.name)
+    if not updated_master:
+        raise HTTPException(status_code=404, detail="Master not found")
+    return updated_master
 
 
 @app.delete("/api/owner/masters/{master_id}")
@@ -233,9 +250,8 @@ async def owner_delete_master(request: Request, master_id: str):
     if not salon:
         raise HTTPException(status_code=404, detail="Salon not found")
 
-    before = len(salon["masters"])
-    salon["masters"] = [m for m in salon["masters"] if m["id"] != master_id]
-    if len(salon["masters"]) == before:
+    deleted = database.delete_master(master_id)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Master not found")
     return {"ok": True}
 
@@ -248,10 +264,38 @@ async def owner_add_service(request: Request, service: ServiceCreate):
     if not salon:
         raise HTTPException(status_code=404, detail="Salon not found")
 
-    service_id = str(uuid.uuid4())
-    service_obj = {"id": service_id, "name": service.name}
-    salon["services"].append(service_obj)
+    service_obj = database.create_service(
+        salon["id"], 
+        service.name, 
+        service.price, 
+        service.duration, 
+        service.description
+    )
     return service_obj
+
+
+@app.patch("/api/owner/services/{service_id}")
+async def owner_update_service(request: Request, service_id: str, payload: ServiceUpdate):
+    owner_id = require_user_id(request)
+    salon = get_owner_salon(owner_id)
+    if not salon:
+        raise HTTPException(status_code=404, detail="Salon not found")
+
+    # Проверяем, что услуга принадлежит салону
+    service_ids = [s["id"] for s in salon.get("services", [])]
+    if service_id not in service_ids:
+        raise HTTPException(status_code=404, detail="Service not found")
+    
+    updated_service = database.update_service(
+        service_id,
+        payload.name,
+        payload.price,
+        payload.duration,
+        payload.description
+    )
+    if not updated_service:
+        raise HTTPException(status_code=404, detail="Service not found")
+    return updated_service
 
 
 @app.delete("/api/owner/services/{service_id}")
@@ -261,9 +305,8 @@ async def owner_delete_service(request: Request, service_id: str):
     if not salon:
         raise HTTPException(status_code=404, detail="Salon not found")
 
-    before = len(salon["services"])
-    salon["services"] = [s for s in salon["services"] if s["id"] != service_id]
-    if len(salon["services"]) == before:
+    deleted = database.delete_service(service_id)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Service not found")
     return {"ok": True}
 
@@ -272,14 +315,7 @@ async def owner_delete_service(request: Request, service_id: str):
 @app.get("/api/client/salons")
 async def client_list_salons():
     """Список всех салонов (публичный)"""
-    salons = []
-    for salon in DB["salons"].values():
-        salons.append({
-            "id": salon["id"],
-            "name": salon["name"],
-            "masters_count": len(salon.get("masters", [])),
-            "services_count": len(salon.get("services", []))
-        })
+    salons = database.get_all_salons()
     return {"items": salons}
 
 
@@ -305,12 +341,10 @@ async def client_get_salon_masters(salon_id: str):
     if not salon:
         raise HTTPException(status_code=404, detail="Salon not found")
     
-    masters = []
-    for master in salon.get("masters", []):
-        masters.append({
-            "id": master["id"],
-            "name": master["name"]
-        })
+    masters = database.get_salon_masters(salon_id)
+    # Убираем telegram_id из ответа для клиентов
+    for master in masters:
+        master.pop("telegram_id", None)
     return {"items": masters}
 
 
@@ -321,20 +355,69 @@ async def client_get_salon_services(salon_id: str):
     if not salon:
         raise HTTPException(status_code=404, detail="Salon not found")
     
-    services = []
-    for service in salon.get("services", []):
-        services.append({
-            "id": service["id"],
-            "name": service["name"]
-        })
+    services = database.get_salon_services(salon_id)
     return {"items": services}
+
+
+@app.get("/api/client/salons/{salon_id}/available-slots")
+async def client_get_available_slots(salon_id: str, master_id: str, date: str):
+    """Получение доступных слотов времени для мастера на указанную дату"""
+    salon = get_salon_by_id(salon_id)
+    if not salon:
+        raise HTTPException(status_code=404, detail="Salon not found")
+    
+    # Проверка существования мастера
+    master_exists = any(m["id"] == master_id for m in salon.get("masters", []))
+    if not master_exists:
+        raise HTTPException(status_code=404, detail="Master not found")
+    
+    # Парсинг даты
+    try:
+        target_date = datetime.fromisoformat(date.replace('Z', '+00:00'))
+        if target_date.tzinfo:
+            target_date = target_date.replace(tzinfo=None)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid date format. Use ISO format (e.g., 2024-01-01)")
+    
+    # Получаем все записи мастера на эту дату
+    appointments = database.get_salon_appointments(salon_id)
+    booked_times = []
+    for apt in appointments:
+        if apt.get("master_id") == master_id and apt.get("status") not in ["cancelled", "completed"]:
+            try:
+                apt_datetime = datetime.fromisoformat(apt.get("datetime", "").replace('Z', '+00:00'))
+                if apt_datetime.tzinfo:
+                    apt_datetime = apt_datetime.replace(tzinfo=None)
+                if apt_datetime.date() == target_date.date():
+                    booked_times.append(apt_datetime)
+            except (ValueError, AttributeError):
+                continue
+    
+    # Генерируем доступные слоты (каждый час с 9:00 до 18:00)
+    available_slots = []
+    start_hour = 9
+    end_hour = 18
+    
+    for hour in range(start_hour, end_hour):
+        slot_time = target_date.replace(hour=hour, minute=0, second=0, microsecond=0)
+        # Проверяем, не занят ли слот
+        is_booked = any(
+            abs((slot_time - booked_time).total_seconds()) < 3600  # В пределах часа
+            for booked_time in booked_times
+        )
+        if not is_booked and slot_time > datetime.now():
+            available_slots.append(slot_time.isoformat())
+    
+    return {"items": available_slots}
 
 
 # --- Master API ---
 def get_master_salon(user_id: str) -> Optional[Dict]:
     """Получить салон, в котором пользователь является мастером"""
-    for salon in DB["salons"].values():
-        if is_master(salon, user_id):
+    salons = database.get_all_salons()
+    for salon_data in salons:
+        salon = get_salon_by_id(salon_data["id"])
+        if salon and is_master(salon, user_id):
             return salon
     return None
 
@@ -368,12 +451,46 @@ async def master_get_appointments(request: Request):
     if not master_ids:
         return {"items": []}
     
-    appointments = salon.get("appointments", [])
-    master_appointments = [
-        apt for apt in appointments
-        if apt.get("master_id") in master_ids
-    ]
-    return {"items": master_appointments}
+    appointments = database.get_master_appointments(master_ids)
+    return {"items": appointments}
+
+
+@app.patch("/api/master/appointments/{appointment_id}")
+async def master_update_appointment(request: Request, appointment_id: str, payload: AppointmentUpdate):
+    """Изменение статуса записи мастером"""
+    user_id = require_user_id(request)
+    salon = get_master_salon(user_id)
+    if not salon:
+        raise HTTPException(status_code=404, detail="Salon not found or user is not a master")
+    
+    # Найти ID мастера по telegram_id
+    master_ids = [m["id"] for m in salon.get("masters", []) if m.get("telegram_id") == str(user_id)]
+    if not master_ids:
+        raise HTTPException(status_code=404, detail="Master not found")
+    
+    # Найти запись мастера
+    appointment = database.get_appointment_by_id(appointment_id)
+    if not appointment or appointment.get("master_id") not in master_ids:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    
+    # Валидация статуса
+    current_status = appointment.get("status")
+    if not payload.status:
+        raise HTTPException(status_code=400, detail="Status is required")
+    
+    valid_statuses = ["pending", "confirmed", "cancelled", "completed"]
+    if payload.status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Allowed: {valid_statuses}")
+    
+    # Проверка допустимых переходов статуса
+    if current_status == "cancelled":
+        raise HTTPException(status_code=400, detail="Cannot change status of cancelled appointment")
+    if current_status == "completed" and payload.status != "completed":
+        raise HTTPException(status_code=400, detail="Cannot change status of completed appointment")
+    
+    # Обновление статуса
+    updated_appointment = database.update_appointment(appointment_id, payload.status)
+    return updated_appointment
 
 
 # --- Appointments API ---
@@ -394,20 +511,57 @@ async def client_create_appointment(request: Request, appointment: AppointmentCr
     if not service_exists:
         raise HTTPException(status_code=404, detail="Service not found")
     
-    appointment_id = str(uuid.uuid4())
-    appointment_obj = {
-        "id": appointment_id,
-        "salon_id": appointment.salon_id,
-        "master_id": appointment.master_id,
-        "service_id": appointment.service_id,
-        "client_id": str(user_id),
-        "datetime": appointment.datetime,
-        "status": "pending"  # pending, confirmed, cancelled, completed
-    }
+    # Валидация времени записи
+    try:
+        # Поддержка разных форматов ISO datetime
+        dt_str = appointment.datetime
+        if dt_str.endswith('Z'):
+            dt_str = dt_str[:-1] + '+00:00'
+        elif '+' not in dt_str and dt_str.count(':') == 2:
+            # Если нет timezone, считаем локальным временем
+            pass
+        appointment_datetime = datetime.fromisoformat(dt_str)
+        # Если нет timezone информации, считаем локальным временем
+        if appointment_datetime.tzinfo is None:
+            # Сравниваем с локальным временем
+            now = datetime.now()
+        else:
+            # Конвертируем в локальное время для сравнения
+            now = datetime.now(appointment_datetime.tzinfo)
+    except (ValueError, AttributeError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid datetime format. Use ISO format (e.g., 2024-01-01T10:00:00). Error: {str(e)}")
     
-    if "appointments" not in salon:
-        salon["appointments"] = []
-    salon["appointments"].append(appointment_obj)
+    # Проверка, что время не в прошлом
+    # Нормализуем оба времени для сравнения
+    if appointment_datetime.tzinfo:
+        now = datetime.now(appointment_datetime.tzinfo)
+    else:
+        now = datetime.now()
+        appointment_datetime = appointment_datetime.replace(tzinfo=None)
+    
+    if appointment_datetime <= now:
+        raise HTTPException(status_code=400, detail="Cannot book appointment in the past")
+    
+    # Проверка на конфликты времени (мастер уже занят в это время)
+    appointments = database.get_salon_appointments(appointment.salon_id)
+    conflicting_appointments = [
+        apt for apt in appointments
+        if apt.get("master_id") == appointment.master_id
+        and apt.get("status") not in ["cancelled", "completed"]
+        and apt.get("datetime") == appointment.datetime
+    ]
+    
+    if conflicting_appointments:
+        raise HTTPException(status_code=409, detail="Master is already booked at this time")
+    
+    appointment_obj = database.create_appointment(
+        appointment.salon_id,
+        appointment.master_id,
+        appointment.service_id,
+        str(user_id),
+        appointment.datetime,
+        "pending"
+    )
     
     return appointment_obj
 
@@ -416,20 +570,82 @@ async def client_create_appointment(request: Request, appointment: AppointmentCr
 async def client_get_appointments(request: Request):
     """Записи клиента"""
     user_id = require_user_id(request)
-    all_appointments = []
+    appointments = database.get_client_appointments(str(user_id))
+    return {"items": appointments}
+
+
+@app.patch("/api/client/appointments/{appointment_id}")
+async def client_update_appointment(request: Request, appointment_id: str, payload: AppointmentUpdate):
+    """Отмена записи клиентом"""
+    user_id = require_user_id(request)
     
-    for salon in DB["salons"].values():
-        appointments = salon.get("appointments", [])
-        client_appointments = [
-            apt for apt in appointments
-            if apt.get("client_id") == str(user_id)
-        ]
-        all_appointments.extend(client_appointments)
+    # Найти запись
+    appointment = database.get_appointment_by_id(appointment_id)
+    if not appointment or appointment.get("client_id") != str(user_id):
+        raise HTTPException(status_code=404, detail="Appointment not found")
     
-    return {"items": all_appointments}
+    # Клиент может только отменить запись
+    if payload.status and payload.status != "cancelled":
+        raise HTTPException(status_code=400, detail="Client can only cancel appointments")
+    
+    # Проверка, что запись можно отменить
+    current_status = appointment.get("status")
+    if current_status in ["cancelled", "completed"]:
+        raise HTTPException(status_code=400, detail=f"Cannot cancel appointment with status: {current_status}")
+    
+    # Обновление статуса
+    updated_appointment = database.update_appointment(appointment_id, "cancelled")
+    return updated_appointment
 
 
 # --- User Role Detection ---
+@app.get("/api/owner/appointments")
+async def owner_get_appointments(request: Request, master_id: Optional[str] = None, status: Optional[str] = None):
+    """Список всех записей салона с фильтрацией"""
+    owner_id = require_user_id(request)
+    salon = get_owner_salon(owner_id)
+    if not salon:
+        raise HTTPException(status_code=404, detail="Salon not found")
+    
+    appointments = database.get_salon_appointments(salon["id"])
+    
+    # Фильтрация по мастеру
+    if master_id:
+        appointments = [apt for apt in appointments if apt.get("master_id") == master_id]
+    
+    # Фильтрация по статусу
+    if status:
+        appointments = [apt for apt in appointments if apt.get("status") == status]
+    
+    return {"items": appointments}
+
+
+@app.patch("/api/owner/appointments/{appointment_id}")
+async def owner_update_appointment(request: Request, appointment_id: str, payload: AppointmentUpdate):
+    """Изменение статуса записи владельцем"""
+    owner_id = require_user_id(request)
+    salon = get_owner_salon(owner_id)
+    if not salon:
+        raise HTTPException(status_code=404, detail="Salon not found")
+    
+    # Найти запись
+    appointment = database.get_appointment_by_id(appointment_id)
+    if not appointment or appointment.get("salon_id") != salon["id"]:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    
+    # Валидация статуса
+    if not payload.status:
+        raise HTTPException(status_code=400, detail="Status is required")
+    
+    valid_statuses = ["pending", "confirmed", "cancelled", "completed"]
+    if payload.status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Allowed: {valid_statuses}")
+    
+    # Обновление статуса
+    updated_appointment = database.update_appointment(appointment_id, payload.status)
+    return updated_appointment
+
+
 @app.get("/api/user/role")
 async def get_user_role_endpoint(request: Request, salon_id: Optional[str] = None):
     """Определение роли пользователя"""
