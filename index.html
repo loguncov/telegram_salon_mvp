@@ -282,6 +282,42 @@
     </div>
   </div>
 
+  <!-- Modal для редактирования салона -->
+  <div class="modal-overlay hidden" id="edit-salon-modal">
+    <div class="modal" style="max-width: 400px;">
+      <div class="modal-header">
+        <h3>Редактировать салон</h3>
+        <button class="secondary" id="close-edit-salon-modal" style="padding: 4px 8px;">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="edit-salon-name" placeholder="Название салона *" required style="width: 100%; margin-bottom: 8px;">
+        <div class="error-message hidden" id="edit-salon-error"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="secondary" id="cancel-edit-salon">Отмена</button>
+        <button class="primary" id="save-edit-salon">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal для редактирования мастера -->
+  <div class="modal-overlay hidden" id="edit-master-modal">
+    <div class="modal" style="max-width: 400px;">
+      <div class="modal-header">
+        <h3>Редактировать мастера</h3>
+        <button class="secondary" id="close-edit-master-modal" style="padding: 4px 8px;">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="edit-master-name" placeholder="Имя мастера *" required style="width: 100%; margin-bottom: 8px;">
+        <div class="error-message hidden" id="edit-master-error"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="secondary" id="cancel-edit-master">Отмена</button>
+        <button class="primary" id="save-edit-master">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script>
     (function () {
@@ -356,22 +392,44 @@
       }
 
       async function fetchJson(path, options = {}) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 секунд таймаут
+        
         try {
           const res = await fetch(`${API_BASE}${path}`, {
             ...options,
+            signal: controller.signal,
             headers: { ...defaultHeaders, ...(options.headers || {}) },
           });
+
+          clearTimeout(timeoutId);
 
           if (res.status === 204) return null;
           const text = await res.text();
           if (!res.ok) {
-            let errorMessage = text || "Request failed";
+            let errorMessage = text || "Запрос не выполнен";
             try {
               const errorData = JSON.parse(text);
               errorMessage = errorData.detail || errorMessage;
             } catch (e) {
               // Если не JSON, используем текст как есть
             }
+            
+            // Улучшенные сообщения об ошибках
+            if (res.status === 401) {
+              errorMessage = "Необходима авторизация";
+            } else if (res.status === 403) {
+              errorMessage = "Доступ запрещен";
+            } else if (res.status === 404) {
+              errorMessage = "Ресурс не найден";
+            } else if (res.status === 409) {
+              errorMessage = errorMessage || "Конфликт данных";
+            } else if (res.status === 400) {
+              errorMessage = errorMessage || "Неверные данные";
+            } else if (res.status >= 500) {
+              errorMessage = "Ошибка сервера. Попробуйте позже.";
+            }
+            
             const err = new Error(errorMessage);
             err.status = res.status;
             throw err;
@@ -379,10 +437,23 @@
 
           return text ? JSON.parse(text) : null;
         } catch (err) {
-          if (err.name === "TypeError" && err.message.includes("fetch")) {
-            throw new Error("Нет соединения с сервером. Проверьте, что backend запущен.");
+          clearTimeout(timeoutId);
+          
+          if (err.name === "AbortError") {
+            throw new Error("Превышено время ожидания. Проверьте соединение с интернетом.");
           }
-          throw err;
+          
+          if (err.name === "TypeError" && err.message.includes("fetch")) {
+            throw new Error("Нет соединения с сервером. Проверьте, что backend запущен и доступен.");
+          }
+          
+          // Если ошибка уже обработана, пробрасываем её дальше
+          if (err.status) {
+            throw err;
+          }
+          
+          // Для неизвестных ошибок
+          throw new Error(err.message || "Произошла неизвестная ошибка");
         }
       }
 
@@ -460,6 +531,13 @@
       async function addMaster(name) {
         return fetchJson("/api/owner/masters", {
           method: "POST",
+          body: JSON.stringify({ name }),
+        });
+      }
+
+      async function updateMaster(id, name) {
+        return fetchJson(`/api/owner/masters/${id}`, {
+          method: "PATCH",
           body: JSON.stringify({ name }),
         });
       }
@@ -581,7 +659,7 @@
         const group = document.getElementById("services-radio-group");
         group.innerHTML = "";
         if (currentServices.length === 0) {
-          group.innerHTML = '<div class="muted">Услуг пока нет</div>';
+          group.innerHTML = '<div class="muted" style="text-align: center; padding: 20px;">В этом салоне пока нет услуг</div>';
           return;
         }
         currentServices.forEach((service) => {
@@ -698,9 +776,23 @@
             document.getElementById("master-error").classList.remove("hidden");
             return false;
           }
+          // Проверяем, что мастер все еще существует
+          const master = currentMasters.find(m => m.id === bookingState.masterId);
+          if (!master) {
+            document.getElementById("master-error").textContent = "Мастер больше не доступен. Пожалуйста, выберите другого мастера.";
+            document.getElementById("master-error").classList.remove("hidden");
+            return false;
+          }
         } else if (bookingState.step === 2) {
           if (!bookingState.serviceId) {
             document.getElementById("service-error").textContent = "Выберите услугу";
+            document.getElementById("service-error").classList.remove("hidden");
+            return false;
+          }
+          // Проверяем, что услуга все еще существует
+          const service = currentServices.find(s => s.id === bookingState.serviceId);
+          if (!service) {
+            document.getElementById("service-error").textContent = "Услуга больше не доступна. Пожалуйста, выберите другую услугу.";
             document.getElementById("service-error").classList.remove("hidden");
             return false;
           }
@@ -711,8 +803,27 @@
             document.getElementById("datetime-error").classList.remove("hidden");
             return false;
           }
+          
+          // Проверяем, что дата не в прошлом
+          const selectedDate = new Date(dateInput.value);
+          const now = new Date();
+          now.setHours(0, 0, 0, 0);
+          if (selectedDate < now) {
+            document.getElementById("datetime-error").textContent = "Нельзя выбрать прошедшую дату";
+            document.getElementById("datetime-error").classList.remove("hidden");
+            return false;
+          }
+          
           if (!bookingState.datetime) {
             document.getElementById("datetime-error").textContent = "Выберите время";
+            document.getElementById("datetime-error").classList.remove("hidden");
+            return false;
+          }
+          
+          // Проверяем, что выбранное время не в прошлом
+          const selectedDateTime = new Date(bookingState.datetime);
+          if (selectedDateTime <= new Date()) {
+            document.getElementById("datetime-error").textContent = "Нельзя выбрать прошедшее время";
             document.getElementById("datetime-error").classList.remove("hidden");
             return false;
           }
@@ -720,8 +831,42 @@
         return true;
       }
 
-      function nextBookingStep() {
+      async function nextBookingStep() {
         if (!validateBookingStep()) return;
+        
+        // Перезагружаем данные перед переходом на следующий шаг для проверки актуальности
+        if (bookingState.step === 1 || bookingState.step === 2) {
+          try {
+            const [masters, services] = await Promise.all([
+              loadClientMasters(currentClientSalonId),
+              loadClientServices(currentClientSalonId)
+            ]);
+            currentMasters = masters;
+            currentServices = services;
+            
+            // Проверяем, что выбранные элементы все еще существуют
+            if (bookingState.step === 1 && bookingState.masterId) {
+              const masterExists = currentMasters.find(m => m.id === bookingState.masterId);
+              if (!masterExists) {
+                document.getElementById("master-error").textContent = "Мастер больше не доступен. Пожалуйста, выберите другого.";
+                document.getElementById("master-error").classList.remove("hidden");
+                return;
+              }
+            }
+            
+            if (bookingState.step === 2 && bookingState.serviceId) {
+              const serviceExists = currentServices.find(s => s.id === bookingState.serviceId);
+              if (!serviceExists) {
+                document.getElementById("service-error").textContent = "Услуга больше не доступна. Пожалуйста, выберите другую.";
+                document.getElementById("service-error").classList.remove("hidden");
+                return;
+              }
+            }
+          } catch (err) {
+            showToast("Ошибка при проверке данных: " + err.message, "error");
+            return;
+          }
+        }
         
         if (bookingState.step === 1) {
           bookingState.step = 2;
@@ -767,7 +912,24 @@
         const btn = document.getElementById("booking-submit-btn");
         setLoading(btn, true, "Создаём запись...");
         
+        // Финальная проверка перед отправкой
         try {
+          const [masters, services] = await Promise.all([
+            loadClientMasters(currentClientSalonId),
+            loadClientServices(currentClientSalonId)
+          ]);
+          
+          const masterExists = masters.find(m => m.id === bookingState.masterId);
+          const serviceExists = services.find(s => s.id === bookingState.serviceId);
+          
+          if (!masterExists) {
+            throw new Error("Мастер больше не доступен. Пожалуйста, начните запись заново.");
+          }
+          
+          if (!serviceExists) {
+            throw new Error("Услуга больше не доступна. Пожалуйста, начните запись заново.");
+          }
+          
           await createAppointment(
             currentClientSalonId,
             bookingState.masterId,
@@ -791,12 +953,14 @@
           if (err.status === 409) {
             errorMsg = "Время занято. Выберите другое время.";
           } else if (err.status === 404) {
-            errorMsg = "Мастер или услуга не найдены";
+            errorMsg = "Мастер или услуга не найдены. Пожалуйста, начните запись заново.";
           } else if (err.status === 400) {
             errorMsg = err.message || "Неверные данные";
           } else if (err.message) {
             errorMsg = err.message;
           }
+          
+          // Показываем ошибку в соответствующем месте
           document.getElementById("datetime-error").textContent = errorMsg;
           document.getElementById("datetime-error").classList.remove("hidden");
           bookingState.step = 3;
@@ -878,6 +1042,14 @@
             editBtn.dataset.id = item.id;
             editBtn.dataset.type = "service-edit";
             actionsDiv.appendChild(editBtn);
+          } else if (type === "master") {
+            const editBtn = document.createElement("button");
+            editBtn.className = "secondary";
+            editBtn.textContent = "Изменить";
+            editBtn.dataset.id = item.id;
+            editBtn.dataset.type = "master-edit";
+            editBtn.dataset.name = item.name;
+            actionsDiv.appendChild(editBtn);
           }
 
           const btn = document.createElement("button");
@@ -953,7 +1125,12 @@
           if (!appointments || appointments.length === 0) {
             const empty = document.createElement("li");
             empty.className = "muted";
-            empty.textContent = "Записей не найдено";
+            empty.style.textAlign = "center";
+            empty.style.padding = "20px";
+            empty.innerHTML = `
+              <div style="margin-bottom: 8px;">Записей не найдено</div>
+              <div style="font-size: 0.85em; color: #7b7b7b;">Попробуйте изменить фильтры</div>
+            `;
             appointmentsList.appendChild(empty);
             return;
           }
@@ -1059,7 +1236,12 @@
         if (!salons || salons.length === 0) {
           const empty = document.createElement("li");
           empty.className = "muted";
-          empty.textContent = "Салоны не найдены";
+          empty.style.textAlign = "center";
+          empty.style.padding = "20px";
+          empty.innerHTML = `
+            <div style="margin-bottom: 8px;">Салоны не найдены</div>
+            <div style="font-size: 0.85em; color: #7b7b7b;">В системе пока нет доступных салонов</div>
+          `;
           list.appendChild(empty);
           return;
         }
@@ -1368,11 +1550,6 @@
           } else {
             // client
             const salons = await loadClientSalons();
-            if (!salons || salons.length === 0) {
-              // Если салонов нет, показываем экран создания салона
-              setState("noSalon");
-              return;
-            }
             renderClientSalons(salons);
             setState("client");
             // Загружаем записи при первом открытии
@@ -1390,6 +1567,14 @@
         const name = input.value.trim();
         if (!name) {
           showToast("Введите название салона", "error");
+          return;
+        }
+        if (name.length < 2) {
+          showToast("Название должно содержать минимум 2 символа", "error");
+          return;
+        }
+        if (name.length > 100) {
+          showToast("Название не должно превышать 100 символов", "error");
           return;
         }
         const btn = e.submitter;
@@ -1412,6 +1597,14 @@
         const name = input.value.trim();
         if (!name) {
           showToast("Введите имя мастера", "error");
+          return;
+        }
+        if (name.length < 2) {
+          showToast("Имя должно содержать минимум 2 символа", "error");
+          return;
+        }
+        if (name.length > 50) {
+          showToast("Имя не должно превышать 50 символов", "error");
           return;
         }
         const btn = e.submitter;
@@ -1440,10 +1633,38 @@
           showToast("Введите название услуги", "error");
           return;
         }
+        if (name.length < 2) {
+          showToast("Название должно содержать минимум 2 символа", "error");
+          return;
+        }
+        if (name.length > 100) {
+          showToast("Название не должно превышать 100 символов", "error");
+          return;
+        }
         
-        const price = priceInput.value ? parseFloat(priceInput.value) : null;
-        const duration = durationInput.value ? parseInt(durationInput.value) : null;
+        let price = null;
+        if (priceInput.value) {
+          price = parseFloat(priceInput.value);
+          if (isNaN(price) || price < 0) {
+            showToast("Цена должна быть положительным числом", "error");
+            return;
+          }
+        }
+        
+        let duration = null;
+        if (durationInput.value) {
+          duration = parseInt(durationInput.value);
+          if (isNaN(duration) || duration < 1) {
+            showToast("Длительность должна быть положительным числом (минимум 1 минута)", "error");
+            return;
+          }
+        }
+        
         const description = descriptionInput.value.trim() || null;
+        if (description && description.length > 500) {
+          showToast("Описание не должно превышать 500 символов", "error");
+          return;
+        }
         
         const btn = e.submitter;
         setLoading(btn, true, "Добавляем…");
@@ -1462,19 +1683,146 @@
         }
       });
 
+      // Функции для работы с модальными окнами редактирования
+      function openEditSalonModal(currentName) {
+        const modal = document.getElementById("edit-salon-modal");
+        const input = document.getElementById("edit-salon-name");
+        const errorDiv = document.getElementById("edit-salon-error");
+        input.value = currentName;
+        errorDiv.classList.add("hidden");
+        modal.classList.remove("hidden");
+      }
+
+      function closeEditSalonModal() {
+        const modal = document.getElementById("edit-salon-modal");
+        const input = document.getElementById("edit-salon-name");
+        const errorDiv = document.getElementById("edit-salon-error");
+        modal.classList.add("hidden");
+        input.value = "";
+        errorDiv.classList.add("hidden");
+      }
+
+      function openEditMasterModal(masterId, currentName) {
+        const modal = document.getElementById("edit-master-modal");
+        const input = document.getElementById("edit-master-name");
+        const errorDiv = document.getElementById("edit-master-error");
+        input.value = currentName;
+        input.dataset.masterId = masterId;
+        errorDiv.classList.add("hidden");
+        modal.classList.remove("hidden");
+      }
+
+      function closeEditMasterModal() {
+        const modal = document.getElementById("edit-master-modal");
+        const input = document.getElementById("edit-master-name");
+        const errorDiv = document.getElementById("edit-master-error");
+        modal.classList.add("hidden");
+        input.value = "";
+        input.dataset.masterId = "";
+        errorDiv.classList.add("hidden");
+      }
+
+      // Обработчики модальных окон
+      document.getElementById("close-edit-salon-modal")?.addEventListener("click", closeEditSalonModal);
+      document.getElementById("cancel-edit-salon")?.addEventListener("click", closeEditSalonModal);
+      document.getElementById("save-edit-salon")?.addEventListener("click", async () => {
+        const input = document.getElementById("edit-salon-name");
+        const errorDiv = document.getElementById("edit-salon-error");
+        const btn = document.getElementById("save-edit-salon");
+        const name = input.value.trim();
+        
+        if (!name) {
+          errorDiv.textContent = "Введите название салона";
+          errorDiv.classList.remove("hidden");
+          return;
+        }
+        
+        if (name.length < 2) {
+          errorDiv.textContent = "Название должно содержать минимум 2 символа";
+          errorDiv.classList.remove("hidden");
+          return;
+        }
+        
+        setLoading(btn, true, "Сохраняем...");
+        try {
+          await updateSalon(name);
+          showToast("Название салона успешно обновлено", "success");
+          closeEditSalonModal();
+          await render();
+        } catch (err) {
+          errorDiv.textContent = err.message || "Не удалось обновить название салона";
+          errorDiv.classList.remove("hidden");
+        } finally {
+          setLoading(btn, false);
+        }
+      });
+
+      document.getElementById("close-edit-master-modal")?.addEventListener("click", closeEditMasterModal);
+      document.getElementById("cancel-edit-master")?.addEventListener("click", closeEditMasterModal);
+      document.getElementById("save-edit-master")?.addEventListener("click", async () => {
+        const input = document.getElementById("edit-master-name");
+        const errorDiv = document.getElementById("edit-master-error");
+        const btn = document.getElementById("save-edit-master");
+        const masterId = input.dataset.masterId;
+        const name = input.value.trim();
+        
+        if (!name) {
+          errorDiv.textContent = "Введите имя мастера";
+          errorDiv.classList.remove("hidden");
+          return;
+        }
+        
+        if (name.length < 2) {
+          errorDiv.textContent = "Имя должно содержать минимум 2 символа";
+          errorDiv.classList.remove("hidden");
+          return;
+        }
+        
+        if (!masterId) {
+          errorDiv.textContent = "Ошибка: не указан ID мастера";
+          errorDiv.classList.remove("hidden");
+          return;
+        }
+        
+        setLoading(btn, true, "Сохраняем...");
+        try {
+          await updateMaster(masterId, name);
+          showToast("Мастер успешно обновлен", "success");
+          closeEditMasterModal();
+          await render();
+        } catch (err) {
+          errorDiv.textContent = err.message || "Не удалось обновить мастера";
+          errorDiv.classList.remove("hidden");
+        } finally {
+          setLoading(btn, false);
+        }
+      });
+
+      // Закрытие модальных окон при клике на overlay
+      document.getElementById("edit-salon-modal")?.addEventListener("click", (e) => {
+        if (e.target.id === "edit-salon-modal") {
+          closeEditSalonModal();
+        }
+      });
+
+      document.getElementById("edit-master-modal")?.addEventListener("click", (e) => {
+        if (e.target.id === "edit-master-modal") {
+          closeEditMasterModal();
+        }
+      });
+
       document.addEventListener("click", async (e) => {
         // Редактирование названия салона
         if (e.target.id === "salon-name-text") {
           const currentName = e.target.dataset.salonName;
-          const newName = prompt("Введите новое название салона:", currentName);
-          if (newName && newName.trim() && newName !== currentName) {
-            try {
-              await updateSalon(newName.trim());
-              await render();
-            } catch (err) {
-              alert(err.message || "Не удалось обновить название салона");
-            }
-          }
+          openEditSalonModal(currentName);
+        }
+        
+        // Редактирование мастера
+        if (e.target.matches("button[data-type='master-edit']")) {
+          const id = e.target.dataset.id;
+          const name = e.target.dataset.name;
+          openEditMasterModal(id, name);
         }
         
         // Редактирование услуги
@@ -1545,13 +1893,35 @@
           const id = e.target.dataset.id;
           const type = e.target.dataset.type;
           if (!id || !type) return;
-          if (!confirm(`Вы уверены, что хотите удалить ${type === "master" ? "мастера" : "услугу"}?`)) return;
+          
+          const itemName = e.target.closest("li")?.querySelector("span")?.textContent || "";
+          const confirmMessage = type === "master" 
+            ? `Вы уверены, что хотите удалить мастера "${itemName}"?\n\nВнимание: это действие нельзя отменить.`
+            : `Вы уверены, что хотите удалить услугу "${itemName}"?\n\nВнимание: это действие нельзя отменить.`;
+          
+          if (!confirm(confirmMessage)) return;
+          
+          const btn = e.target;
+          setLoading(btn, true, "Удаляем...");
           try {
-            if (type === "master") await deleteMaster(id);
-            if (type === "service") await deleteService(id);
+            if (type === "master") {
+              await deleteMaster(id);
+              showToast("Мастер успешно удален", "success");
+            } else if (type === "service") {
+              await deleteService(id);
+              showToast("Услуга успешно удалена", "success");
+            }
             await render();
           } catch (err) {
-            alert(err.message || "Не удалось удалить");
+            let errorMsg = err.message || "Не удалось удалить";
+            if (err.status === 409) {
+              errorMsg = "Нельзя удалить: есть активные записи";
+            } else if (err.status === 404) {
+              errorMsg = "Элемент уже был удален";
+            }
+            showToast(errorMsg, "error");
+          } finally {
+            setLoading(btn, false);
           }
         }
         
@@ -1562,22 +1932,20 @@
           if (!appointmentId || !action) return;
           
           const btn = e.target;
-          const originalText = btn.textContent;
-          btn.disabled = true;
-          btn.textContent = "Обновляем...";
+          setLoading(btn, true, "Обновляем...");
           
           try {
             await updateMasterAppointment(appointmentId, action);
+            showToast("Запись успешно обновлена", "success");
             // Перезагружаем данные мастера
             const salon = await loadMasterSalon();
             if (salon) {
               await renderMasterSalon(salon);
             }
           } catch (err) {
-            alert(err.message || "Не удалось обновить запись");
+            showToast(err.message || "Не удалось обновить запись", "error");
           } finally {
-            btn.disabled = false;
-            btn.textContent = originalText;
+            setLoading(btn, false);
           }
         }
         
@@ -1588,22 +1956,20 @@
           if (!appointmentId || !action) return;
           
           const btn = e.target;
-          const originalText = btn.textContent;
-          btn.disabled = true;
-          btn.textContent = "Обновляем...";
+          setLoading(btn, true, "Обновляем...");
           
           try {
             await updateOwnerAppointment(appointmentId, action);
+            showToast("Запись успешно обновлена", "success");
             // Перезагружаем данные салона
             const salon = await loadSalon();
             if (salon) {
               renderSalon(salon);
             }
           } catch (err) {
-            alert(err.message || "Не удалось обновить запись");
+            showToast(err.message || "Не удалось обновить запись", "error");
           } finally {
-            btn.disabled = false;
-            btn.textContent = originalText;
+            setLoading(btn, false);
           }
         }
       });
@@ -1666,16 +2032,15 @@
           if (!confirm("Вы уверены, что хотите отменить запись?")) return;
           
           const btn = e.target;
-          btn.disabled = true;
-          btn.textContent = "Отменяем...";
+          setLoading(btn, true, "Отменяем...");
           try {
             await cancelAppointment(appointmentId);
+            showToast("Запись успешно отменена", "success");
             await renderClientAppointments();
           } catch (err) {
-            alert(err.message || "Не удалось отменить запись");
+            showToast(err.message || "Не удалось отменить запись", "error");
           } finally {
-            btn.disabled = false;
-            btn.textContent = "Отменить";
+            setLoading(btn, false);
           }
         }
       });

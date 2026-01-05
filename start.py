@@ -12,6 +12,12 @@ import platform
 import time
 from pathlib import Path
 
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+
 # Цвета для вывода (если поддерживается)
 class Colors:
     CYAN = '\033[96m'
@@ -90,6 +96,59 @@ def install_dependencies(pip_path):
         Colors.print_colored("[OK] Зависимости установлены", Colors.GREEN)
     else:
         Colors.print_colored("[OK] Зависимости уже установлены", Colors.GREEN)
+    
+    # Проверяем psutil после установки зависимостей
+    global PSUTIL_AVAILABLE
+    try:
+        import psutil
+        PSUTIL_AVAILABLE = True
+    except ImportError:
+        PSUTIL_AVAILABLE = False
+        Colors.print_colored("[ПРЕДУПРЕЖДЕНИЕ] psutil не установлен, проверка процессов недоступна", Colors.YELLOW)
+
+
+def check_process_running(process_name, script_name=None):
+    """Проверка, запущен ли процесс"""
+    if not PSUTIL_AVAILABLE:
+        return False, None
+    
+    try:
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                cmdline = proc.info.get('cmdline', [])
+                if not cmdline:
+                    continue
+                
+                cmdline_str = ' '.join(str(c) for c in cmdline)
+                
+                # Проверка по имени процесса и скрипта
+                if process_name.lower() in proc.info.get('name', '').lower():
+                    if script_name is None or script_name in cmdline_str:
+                        return True, proc.info['pid']
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+    except Exception as e:
+        Colors.print_colored(f"[ПРЕДУПРЕЖДЕНИЕ] Ошибка при проверке процессов: {e}", Colors.YELLOW)
+    
+    return False, None
+
+
+def stop_process(pid):
+    """Остановка процесса по PID"""
+    if not PSUTIL_AVAILABLE:
+        return False
+    
+    try:
+        proc = psutil.Process(pid)
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except psutil.TimeoutExpired:
+            proc.kill()
+        return True
+    except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+        Colors.print_colored(f"[ПРЕДУПРЕЖДЕНИЕ] Не удалось остановить процесс {pid}: {e}", Colors.YELLOW)
+        return False
 
 
 def start_backend(python_path):
@@ -98,6 +157,22 @@ def start_backend(python_path):
     Colors.print_colored("========================================", Colors.CYAN)
     Colors.print_colored("  Запуск Backend (порт 8000)", Colors.CYAN)
     Colors.print_colored("========================================", Colors.CYAN)
+    
+    # Проверка на запущенный backend
+    is_running, pid = check_process_running("python", "uvicorn backend:app")
+    if is_running:
+        Colors.print_colored(f"[ПРЕДУПРЕЖДЕНИЕ] Backend уже запущен (PID: {pid})", Colors.YELLOW)
+        response = input("Остановить существующий процесс и запустить новый? (y/n): ").strip().lower()
+        if response == 'y':
+            if stop_process(pid):
+                Colors.print_colored("[OK] Старый процесс остановлен", Colors.GREEN)
+                time.sleep(1)
+            else:
+                Colors.print_colored("[ОШИБКА] Не удалось остановить процесс", Colors.RED)
+                return
+        else:
+            Colors.print_colored("[ИНФО] Используется существующий процесс", Colors.YELLOW)
+            return
     
     if platform.system() == 'Windows':
         # Windows: запускаем в новом окне
@@ -124,6 +199,25 @@ def start_bot(python_path):
     Colors.print_colored("========================================", Colors.CYAN)
     Colors.print_colored("  Запуск Telegram Bot", Colors.CYAN)
     Colors.print_colored("========================================", Colors.CYAN)
+    
+    # Проверка на запущенный бот
+    is_running, pid = check_process_running("python", "bot.py")
+    if is_running:
+        Colors.print_colored(f"[ПРЕДУПРЕЖДЕНИЕ] Bot уже запущен (PID: {pid})", Colors.YELLOW)
+        Colors.print_colored("Это может вызвать конфликт с Telegram API!", Colors.RED)
+        response = input("Остановить существующий процесс и запустить новый? (y/n): ").strip().lower()
+        if response == 'y':
+            if stop_process(pid):
+                Colors.print_colored("[OK] Старый процесс остановлен", Colors.GREEN)
+                time.sleep(1)
+            else:
+                Colors.print_colored("[ОШИБКА] Не удалось остановить процесс", Colors.RED)
+                Colors.print_colored("[ИНФО] Остановите процесс вручную перед запуском", Colors.YELLOW)
+                return
+        else:
+            Colors.print_colored("[ОШИБКА] Нельзя запустить несколько экземпляров бота!", Colors.RED)
+            Colors.print_colored("[ИНФО] Остановите существующий процесс перед запуском", Colors.YELLOW)
+            return
     
     if platform.system() == 'Windows':
         # Windows: запускаем в новом окне
