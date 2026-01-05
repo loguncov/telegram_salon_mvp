@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salon WebApp</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px 16px 48px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f6f7fb; color: #111; }
+    .wrap { max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+    .card { background: #fff; border-radius: 14px; box-shadow: 0 8px 28px rgba(0,0,0,0.05); padding: 16px 18px; }
+    .hidden { display: none !important; }
+    h2, h3, h4 { margin: 0 0 6px; }
+    p { margin: 0 0 10px; color: #444; }
+    .muted { color: #7b7b7b; font-size: 0.95em; }
+    .eyebrow { text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.72em; color: #6a7a90; margin-bottom: 4px; }
+    .title { font-size: 1.25em; font-weight: 700; }
+    .subtitle { font-weight: 600; }
+    .card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+    .section { margin-top: 14px; }
+    .section-head { display: flex; justify-content: space-between; align-items: center; }
+    .list { list-style: none; padding: 0; margin: 10px 0 0; display: flex; flex-direction: column; gap: 8px; }
+    .list li { background: #f8fafc; border: 1px solid #eef1f6; border-radius: 10px; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; }
+    .chip { font-size: 0.85em; color: #5b6b80; }
+    button { border: none; cursor: pointer; border-radius: 10px; padding: 10px 14px; font-size: 0.95em; font-weight: 600; transition: all 0.15s ease; }
+    button.primary { background: #2b8cff; color: #fff; }
+    button.secondary { background: #eef2f7; color: #1d2b3a; }
+    button.danger { background: #f35050; color: #fff; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    form { display: flex; gap: 8px; margin-top: 10px; }
+    input { flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid #d9deeb; font-size: 0.95em; }
+    .inline-form button { white-space: nowrap; }
+    .pill { padding: 4px 8px; border-radius: 999px; background: #eef2f7; font-size: 0.85em; color: #4a5a6b; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card" id="state-loading">
+      <h3>Загрузка…</h3>
+      <p class="muted">Проверяем ваш салон</p>
+    </div>
+
+    <div class="card hidden" id="state-error">
+      <h3>Не получилось</h3>
+      <p id="error-text" class="muted"></p>
+      <button class="primary" id="retry-btn">Попробовать снова</button>
+    </div>
+
+    <div class="card hidden" id="state-no-salon">
+      <h3>Салон не найден</h3>
+      <p class="muted">Создайте салон, чтобы управлять мастерами и услугами.</p>
+      <form id="create-salon-form" class="inline-form">
+        <input type="text" id="salon-name" placeholder="Название салона" required>
+        <button class="primary" type="submit">Создать</button>
+      </form>
+    </div>
+
+    <div class="card hidden" id="state-owner">
+      <div class="card-header">
+        <div>
+          <div class="eyebrow">Ваш салон</div>
+          <div id="salon-name-text" class="title"></div>
+          <div class="muted" id="salon-id"></div>
+        </div>
+        <button class="secondary" id="refresh-btn">Обновить</button>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">Команда</div>
+            <div class="subtitle">Мастера</div>
+          </div>
+          <span class="pill" id="masters-count"></span>
+        </div>
+        <ul class="list" id="masters-list"></ul>
+        <form id="add-master-form" class="inline-form">
+          <input type="text" id="master-name" placeholder="Имя мастера" required>
+          <button class="primary" type="submit">Добавить</button>
+        </form>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">Услуги</div>
+            <div class="subtitle">Черновик</div>
+          </div>
+          <span class="pill" id="services-count"></span>
+        </div>
+        <ul class="list" id="services-list"></ul>
+        <form id="add-service-form" class="inline-form">
+          <input type="text" id="service-name" placeholder="Название услуги" required>
+          <button class="primary" type="submit">Добавить</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card hidden" id="state-master">
+      <div class="card-header">
+        <div>
+          <div class="eyebrow">Ваш салон</div>
+          <div id="master-salon-name-text" class="title"></div>
+        </div>
+        <button class="secondary" id="master-refresh-btn">Обновить</button>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">Услуги</div>
+            <div class="subtitle">Доступные услуги</div>
+          </div>
+          <span class="pill" id="master-services-count"></span>
+        </div>
+        <ul class="list" id="master-services-list"></ul>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">Записи</div>
+            <div class="subtitle">Ваши записи</div>
+          </div>
+        </div>
+        <ul class="list" id="master-appointments-list"></ul>
+        <p class="muted" style="margin-top: 10px;">Функционал записей будет добавлен позже</p>
+      </div>
+    </div>
+
+    <div class="card hidden" id="state-client">
+      <div class="card-header">
+        <div>
+          <div class="eyebrow">Салоны</div>
+          <div class="title">Выберите салон</div>
+        </div>
+      </div>
+
+      <div class="section" id="client-salons-section">
+        <ul class="list" id="client-salons-list"></ul>
+      </div>
+
+      <div class="section hidden" id="client-salon-detail-section">
+        <div class="card-header">
+          <div>
+            <div class="eyebrow">Салон</div>
+            <div id="client-salon-name-text" class="title"></div>
+          </div>
+          <button class="secondary" id="client-back-btn">Назад</button>
+        </div>
+
+        <div class="section">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Мастера</div>
+              <div class="subtitle">Наша команда</div>
+            </div>
+            <span class="pill" id="client-masters-count"></span>
+          </div>
+          <ul class="list" id="client-masters-list"></ul>
+        </div>
+
+        <div class="section">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Услуги</div>
+              <div class="subtitle">Что мы предлагаем</div>
+            </div>
+            <span class="pill" id="client-services-count"></span>
+          </div>
+          <ul class="list" id="client-services-list"></ul>
+        </div>
+
+        <div class="section">
+          <button class="primary" id="client-book-btn" style="width: 100%;">Записаться</button>
+          <p class="muted" style="margin-top: 10px; text-align: center;">Функционал записи будет добавлен позже</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script>
+    (function () {
+      const tg = window.Telegram.WebApp;
+      tg.ready();
+      tg.expand();
+
+      const user = tg.initDataUnsafe?.user;
+      if (!user) {
+        document.body.innerHTML = `
+          <div class="wrap">
+            <div class="card">
+              <h3>Нужно открыть через бота</h3>
+              <p class="muted">Используйте кнопку в чате, чтобы загрузить приложение.</p>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      // API_BASE: если на GitHub Pages, используем backend URL, иначе текущий origin
+      const API_BASE = window.location.hostname === "loguncov.github.io" 
+        ? "http://localhost:8000"  // Для GitHub Pages указываем локальный backend
+        : window.location.origin;  // Для локальной разработки используем текущий origin
+      
+      const defaultHeaders = {
+        "Content-Type": "application/json",
+        "X-User-Id": user.id,
+      };
+
+      const states = {
+        loading: document.getElementById("state-loading"),
+        error: document.getElementById("state-error"),
+        noSalon: document.getElementById("state-no-salon"),
+        owner: document.getElementById("state-owner"),
+        master: document.getElementById("state-master"),
+        client: document.getElementById("state-client"),
+      };
+
+      function setState(name) {
+        Object.entries(states).forEach(([key, el]) => {
+          if (el) el.classList.toggle("hidden", key !== name);
+        });
+      }
+
+      function showError(message) {
+        setState("error");
+        document.getElementById("error-text").textContent = message;
+      }
+
+      async function fetchJson(path, options = {}) {
+        const res = await fetch(`${API_BASE}${path}`, {
+          ...options,
+          headers: { ...defaultHeaders, ...(options.headers || {}) },
+        });
+
+        if (res.status === 204) return null;
+        const text = await res.text();
+        if (!res.ok) {
+          const err = new Error(text || "Request failed");
+          err.status = res.status;
+          throw err;
+        }
+
+        return text ? JSON.parse(text) : null;
+      }
+
+      async function getUserRole(salonId = null) {
+        const params = salonId ? `?salon_id=${salonId}` : "";
+        return fetchJson(`/api/user/role${params}`);
+      }
+
+      async function loadSalon() {
+        try {
+          return await fetchJson("/api/owner/salon");
+        } catch (err) {
+          if (err.status === 404) return null;
+          throw err;
+        }
+      }
+
+      async function loadMasterSalon() {
+        try {
+          return await fetchJson("/api/master/salon");
+        } catch (err) {
+          if (err.status === 404) return null;
+          throw err;
+        }
+      }
+
+      async function loadClientSalons() {
+        const data = await fetchJson("/api/client/salons");
+        return data.items || [];
+      }
+
+      async function loadClientSalon(salonId) {
+        return fetchJson(`/api/client/salons/${salonId}`);
+      }
+
+      async function loadClientMasters(salonId) {
+        const data = await fetchJson(`/api/client/salons/${salonId}/masters`);
+        return data.items || [];
+      }
+
+      async function loadClientServices(salonId) {
+        const data = await fetchJson(`/api/client/salons/${salonId}/services`);
+        return data.items || [];
+      }
+
+      let currentClientSalonId = null;
+
+      async function createSalon(name) {
+        return fetchJson("/api/owner/salon", {
+          method: "POST",
+          body: JSON.stringify({ name }),
+        });
+      }
+
+      async function addMaster(name) {
+        return fetchJson("/api/owner/masters", {
+          method: "POST",
+          body: JSON.stringify({ name }),
+        });
+      }
+
+      async function deleteMaster(id) {
+        return fetchJson(`/api/owner/masters/${id}`, { method: "DELETE" });
+      }
+
+      async function addService(name) {
+        return fetchJson("/api/owner/services", {
+          method: "POST",
+          body: JSON.stringify({ name }),
+        });
+      }
+
+      async function deleteService(id) {
+        return fetchJson(`/api/owner/services/${id}`, { method: "DELETE" });
+      }
+
+      function renderList(targetId, items, type) {
+        const list = document.getElementById(targetId);
+        list.innerHTML = "";
+
+        if (!items || items.length === 0) {
+          const empty = document.createElement("li");
+          empty.className = "muted";
+          empty.textContent = type === "master" ? "Мастеров пока нет" : "Услуг пока нет";
+          list.appendChild(empty);
+          return;
+        }
+
+        items.forEach((item) => {
+          const li = document.createElement("li");
+          const span = document.createElement("span");
+          span.textContent = item.name;
+
+          const btn = document.createElement("button");
+          btn.className = "danger";
+          btn.textContent = "Удалить";
+          btn.dataset.id = item.id;
+          btn.dataset.type = type;
+
+          li.appendChild(span);
+          li.appendChild(btn);
+          list.appendChild(li);
+        });
+      }
+
+      function renderSalon(salon) {
+        document.getElementById("salon-name-text").textContent = salon.name;
+        document.getElementById("salon-id").textContent = `ID: ${salon.id}`;
+
+        renderList("masters-list", salon.masters, "master");
+        renderList("services-list", salon.services, "service");
+
+        document.getElementById("masters-count").textContent = `${salon.masters.length}`;
+        document.getElementById("services-count").textContent = `${salon.services.length}`;
+      }
+
+      function renderClientSalons(salons) {
+        const list = document.getElementById("client-salons-list");
+        list.innerHTML = "";
+
+        if (!salons || salons.length === 0) {
+          const empty = document.createElement("li");
+          empty.className = "muted";
+          empty.textContent = "Салоны не найдены";
+          list.appendChild(empty);
+          return;
+        }
+
+        salons.forEach((salon) => {
+          const li = document.createElement("li");
+          li.style.cursor = "pointer";
+          li.innerHTML = `
+            <div>
+              <div style="font-weight: 600;">${salon.name}</div>
+              <div class="muted" style="font-size: 0.85em; margin-top: 4px;">
+                Мастеров: ${salon.masters_count} • Услуг: ${salon.services_count}
+              </div>
+            </div>
+            <span style="color: #2b8cff;">→</span>
+          `;
+          li.addEventListener("click", () => showClientSalonDetail(salon.id));
+          list.appendChild(li);
+        });
+      }
+
+      async function showClientSalonDetail(salonId) {
+        currentClientSalonId = salonId;
+        document.getElementById("client-salons-section").classList.add("hidden");
+        document.getElementById("client-salon-detail-section").classList.remove("hidden");
+
+        try {
+          const [salon, masters, services] = await Promise.all([
+            loadClientSalon(salonId),
+            loadClientMasters(salonId),
+            loadClientServices(salonId)
+          ]);
+
+          document.getElementById("client-salon-name-text").textContent = salon.name;
+          renderList("client-masters-list", masters, "client-master");
+          renderList("client-services-list", services, "client-service");
+          document.getElementById("client-masters-count").textContent = `${masters.length}`;
+          document.getElementById("client-services-count").textContent = `${services.length}`;
+        } catch (err) {
+          alert(err.message || "Не удалось загрузить информацию о салоне");
+        }
+      }
+
+      function renderMasterSalon(salon) {
+        document.getElementById("master-salon-name-text").textContent = salon.name;
+        renderList("master-services-list", salon.services, "master-service");
+        document.getElementById("master-services-count").textContent = `${salon.services.length}`;
+
+        const appointmentsList = document.getElementById("master-appointments-list");
+        appointmentsList.innerHTML = "";
+        const empty = document.createElement("li");
+        empty.className = "muted";
+        empty.textContent = "Записей пока нет";
+        appointmentsList.appendChild(empty);
+      }
+
+      async function render() {
+        setState("loading");
+        try {
+          const roleData = await getUserRole();
+          const role = roleData.role;
+
+          if (role === "owner") {
+            const salon = await loadSalon();
+            if (!salon) {
+              setState("noSalon");
+              return;
+            }
+            renderSalon(salon);
+            setState("owner");
+          } else if (role === "master") {
+            const salon = await loadMasterSalon();
+            if (!salon) {
+              setState("client");
+              const salons = await loadClientSalons();
+              renderClientSalons(salons);
+              return;
+            }
+            renderMasterSalon(salon);
+            setState("master");
+          } else {
+            // client
+            const salons = await loadClientSalons();
+            if (!salons || salons.length === 0) {
+              // Если салонов нет, показываем экран создания салона
+              setState("noSalon");
+              return;
+            }
+            renderClientSalons(salons);
+            setState("client");
+          }
+        } catch (err) {
+          console.error(err);
+          showError(err.message || "Что-то пошло не так");
+        }
+      }
+
+      document.getElementById("create-salon-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const input = document.getElementById("salon-name");
+        const name = input.value.trim();
+        if (!name) return;
+        const btn = e.submitter;
+        btn.disabled = true;
+        btn.textContent = "Создаём…";
+        try {
+          await createSalon(name);
+          input.value = "";
+          await render();
+        } catch (err) {
+          alert(err.message || "Не удалось создать салон");
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "Создать";
+        }
+      });
+
+      document.getElementById("add-master-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const input = document.getElementById("master-name");
+        const name = input.value.trim();
+        if (!name) return;
+        const btn = e.submitter;
+        btn.disabled = true;
+        btn.textContent = "Добавляем…";
+        try {
+          await addMaster(name);
+          input.value = "";
+          await render();
+        } catch (err) {
+          alert(err.message || "Не удалось добавить мастера");
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "Добавить";
+        }
+      });
+
+      document.getElementById("add-service-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const input = document.getElementById("service-name");
+        const name = input.value.trim();
+        if (!name) return;
+        const btn = e.submitter;
+        btn.disabled = true;
+        btn.textContent = "Добавляем…";
+        try {
+          await addService(name);
+          input.value = "";
+          await render();
+        } catch (err) {
+          alert(err.message || "Не удалось добавить услугу");
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "Добавить";
+        }
+      });
+
+      document.addEventListener("click", async (e) => {
+        if (e.target.matches("button.danger")) {
+          const id = e.target.dataset.id;
+          const type = e.target.dataset.type;
+          if (!id || !type) return;
+          try {
+            if (type === "master") await deleteMaster(id);
+            if (type === "service") await deleteService(id);
+            await render();
+          } catch (err) {
+            alert(err.message || "Не удалось удалить");
+          }
+        }
+      });
+
+      document.getElementById("refresh-btn")?.addEventListener("click", render);
+      document.getElementById("master-refresh-btn")?.addEventListener("click", render);
+      document.getElementById("retry-btn").addEventListener("click", render);
+
+      document.getElementById("client-back-btn")?.addEventListener("click", () => {
+        currentClientSalonId = null;
+        document.getElementById("client-salons-section").classList.remove("hidden");
+        document.getElementById("client-salon-detail-section").classList.add("hidden");
+      });
+
+      document.getElementById("client-book-btn")?.addEventListener("click", () => {
+        alert("Функционал записи будет добавлен позже");
+      });
+
+      render();
+    })();
+  </script>
+</body>
+</html>
